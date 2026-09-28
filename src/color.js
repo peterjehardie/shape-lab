@@ -68,10 +68,14 @@ export function makeStyle(o) {
     }
     return s;
   };
-  function lab(shade, lOff = 0) {
+  function lab(shade, lOff = 0, hr = 0) {
     const s = shadeMap(shade);
     const L = o.L + lOff + o.spread * s;
     let a = o.ab[0], b = o.ab[1];
+    if (hr) {
+      const c = Math.cos((hr * Math.PI) / 180), sn = Math.sin((hr * Math.PI) / 180);
+      [a, b] = [a * c - b * sn, a * sn + b * c];
+    }
     if (s > 0) {
       const w = o.sunWarm * s * 0.6;
       a = lerp(a, o.sunAB[0], w);
@@ -84,11 +88,12 @@ export function makeStyle(o) {
     if (o.grey) a = b = 0;
     return [L, a, b];
   }
-  function rgb(shade, lOff = 0) {
-    const key = Math.round(shade * 128) * 1000 + Math.round(lOff * 200);
+  function rgb(shade, lOff = 0, hr = 0) {
+    const hq = Math.round(hr / 2) * 2;
+    const key = `${Math.round(shade * 128)}|${Math.round(lOff * 200)}|${hq}`;
     let c = cache.get(key);
     if (!c) {
-      const q = lab(Math.round(shade * 128) / 128, Math.round(lOff * 200) / 200);
+      const q = lab(Math.round(shade * 128) / 128, Math.round(lOff * 200) / 200, hq);
       const r = labToRgb(q[0], q[1], q[2]);
       c = { rgb: r, css: rgbCss(r) };
       cache.set(key, c);
@@ -97,8 +102,9 @@ export function makeStyle(o) {
   }
   return {
     L: o.L,
-    css: (shade, lOff) => rgb(shade, lOff).css,
-    rgb: (shade, lOff) => rgb(shade, lOff).rgb,
+    css: (shade, lOff, hr) => rgb(shade, lOff, hr).css,
+    rgb: (shade, lOff, hr) => rgb(shade, lOff, hr).rgb,
+    steps: o.steps,
     lab,
   };
 }

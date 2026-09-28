@@ -1,6 +1,6 @@
 // Node graph editor: drag nodes, wire outputs (right dots) to inputs (left dots).
 import { h } from './util.js';
-import { NODE_TYPES, makeNode, createsCycle, compileGraph } from './graph.js';
+import { NODE_TYPES, makeNode, createsCycle, compileGraph, GRAPH_PRESETS } from './graph.js';
 
 const SVGNS = 'http://www.w3.org/2000/svg';
 const svg = (tag, attrs = {}) => {
@@ -10,7 +10,7 @@ const svg = (tag, attrs = {}) => {
 };
 const INT_PARAMS = new Set(['octaves', 'seed', 'clamp']);
 
-export function createGraphEditor(root, { getGraph, onLive, onCommit }) {
+export function createGraphEditor(root, { getGraph, setGraph, onLive, onCommit }) {
   root.innerHTML = '';
   let pan = { x: 20, y: 16 };
   let selected = null;
@@ -30,6 +30,16 @@ export function createGraphEditor(root, { getGraph, onLive, onCommit }) {
     addSel.value = '';
   });
 
+  const presetSel = h('select', {}, h('option', { value: '' }, 'Load a graph\u2026'), ...Object.entries(GRAPH_PRESETS).map(([k, v]) => h('option', { value: k }, v.label)));
+  presetSel.addEventListener('change', () => {
+    const pr = GRAPH_PRESETS[presetSel.value];
+    presetSel.value = '';
+    if (!pr) return;
+    setGraph(pr.make());
+    rebuild();
+    onLive();
+    onCommit();
+  });
   const canvasEl = h('div', { class: 'ge-canvas' });
   const world = h('div', { class: 'ge-world' });
   const links = svg('svg', { class: 'ge-links', width: 6000, height: 4000 });
@@ -42,14 +52,14 @@ export function createGraphEditor(root, { getGraph, onLive, onCommit }) {
   const dIn = h('input', { type: 'range', min: 0, max: 1, step: 0.01, value: previewDepth });
   dIn.addEventListener('input', () => { previewDepth = +dIn.value; drawPreview(); });
   const preview = h('div', { class: 'ge-preview' },
-    h('div', {}, 'Preview: a grid bent by the graph. Each layer multiplies this by its own “Node graph amount”.'),
+    h('div', {}, 'Preview: a grid bent by the graph (movement only). The value, size and density outputs change shapes directly; each layer sets how much it listens.'),
     prev,
     h('label', {}, 'Exaggerate preview'), exIn,
     h('label', {}, 'Preview at layer depth (0 far → 1 near)'), dIn);
 
   root.append(
     h('div', { class: 'ge-bar' },
-      h('strong', {}, 'Distortion graph'), addSel,
+      h('strong', {}, 'Scene graph'), presetSel, addSel,
       h('button', { class: 'small', onclick: () => { pan = { x: 20, y: 16 }; applyPan(); } }, 'Recentre'),
       h('span', { class: 'hint' }, 'Drag right-hand dots to left-hand dots to wire. Click a wire to cut it. Right-click the grid to add. Drag a number’s label to scrub it.')),
     h('div', { class: 'ge-main' }, canvasEl, preview));

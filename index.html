@@ -18,6 +18,13 @@
       <button data-view="groups">Groups</button>
     </div>
     <label class="chk"><input type="checkbox" id="ovStructure" /> Structure</label>
+    <div class="seg" id="tools" role="group" aria-label="Canvas tool">
+      <button data-tool="select" title="Select and drag objects (V)">Select</button>
+      <button data-tool="move" title="Drag the selected layer (M)">Move layer</button>
+      <button data-tool="add" title="Click to add objects (A)">Add</button>
+      <button data-tool="draw" title="Draw a shape (D)">Draw</button>
+      <button data-tool="erase" title="Click to hide objects (E)">Erase</button>
+    </div>
     <div class="spacer"></div>
     <button id="btnUndo" title="Undo (Ctrl+Z)">Undo</button>
     <button id="btnRedo" title="Redo (Ctrl+Shift+Z)">Redo</button>
@@ -43,6 +50,12 @@
   <section class="drawer" id="graphDrawer" hidden>
     <div id="graphEditor"></div>
   </section>
+  <div class="modal" id="gallery" hidden>
+    <div class="modal-box">
+      <div class="modal-head"><h3>Pick a seed</h3><span><button class="more">Show 7 more</button> <button class="close">Close</button></span></div>
+      <div class="grid"></div>
+    </div>
+  </div>
   <script type="module" src="src/main.js"></script>
 </body>
 </html>

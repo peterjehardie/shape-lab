@@ -12,8 +12,10 @@ const fmt = (v, step) => {
   return v.toFixed(d);
 };
 
-function section(id, title, body, note) {
-  const d = h('details', { class: 'sec' }, h('summary', {}, title), h('div', { class: 'sec-body' }, note ? h('p', { class: 'note' }, note) : null, ...body));
+function section(id, title, body, note, dice) {
+  const summary = h('summary', {}, h('span', {}, title),
+    dice ? h('button', { class: 'small ghost sec-dice', title: 'Random values for this section (Undo reverts)', onclick: (e) => { e.preventDefault(); e.stopPropagation(); dice(); } }, '\u2684') : null);
+  const d = h('details', { class: 'sec' }, summary, h('div', { class: 'sec-body' }, note ? h('p', { class: 'note' }, note) : null, ...body));
   d.open = openSecs.has(id);
   d.addEventListener('toggle', () => (d.open ? openSecs.add(id) : openSecs.delete(id)));
   return d;
@@ -60,6 +62,11 @@ export function control(spec, obj, api, options) {
     });
     return h('div', { class: 'row wide' }, label, h('div', {}, c));
   }
+  if (spec.type === 'text') {
+    const t = h('input', { type: 'text', value: val ?? '', style: { width: '100%' } });
+    t.addEventListener('change', () => { api.set(spec, t.value); api.commit(spec); });
+    return h('div', { class: 'row wide' }, label, t);
+  }
   if (spec.type === 'color') {
     const c = h('input', { type: 'color', value: val });
     c.addEventListener('input', () => api.set(spec, c.value));
@@ -85,7 +92,9 @@ export function renderLayerPanel(el, state, act) {
           h('button', { class: 'small ghost eye', title: l.visible ? 'Hide' : 'Show', onclick: stop(() => act.toggleVisible(l.id)) }, l.visible ? '◉' : '○'),
           h('span', { class: 'swatch', style: { background: l.kind === 'sky' ? state.scene.globals.skyTop : l.p.color } }),
           h('span', { class: 'name', title: `${l.name} (${KINDS[l.kind].label})` }, l.name),
+          l.locked ? h('span', { class: 'kind', title: 'Seed locked: Reseed all skips this layer' }, '\u{1F512}\uFE0E') : null,
           h('span', { class: 'acts' },
+            h('button', { class: 'small ghost', title: l.locked ? 'Unlock seed' : 'Lock seed (Reseed all skips it)', onclick: stop(() => act.toggleLock(l.id)) }, l.locked ? '\u25a3' : '\u25a1'),
             h('button', { class: 'small ghost', title: 'Move back', disabled: i === 0, onclick: stop(() => act.move(l.id, -1)) }, '↑'),
             h('button', { class: 'small ghost', title: 'Move forward', disabled: i === layers.length - 1, onclick: stop(() => act.move(l.id, 1)) }, '↓'),
             h('button', { class: 'small ghost', title: 'Duplicate', onclick: stop(() => act.duplicate(l.id)) }, '⧉'),
@@ -127,10 +136,16 @@ function renderLayer(el, state, act, layer) {
     h('div', { class: 'row wide' }, h('label', {}, 'Name'), nameIn),
     h('div', { class: 'row wide' }, h('label', {}, 'Depth band'), band),
     h('div', { class: 'row wide' }, h('label', {}, 'Structure'), kind),
-    h('div', { class: 'row wide' }, h('label', {}, 'Seed'), h('div', { style: { display: 'flex', gap: '6px' } }, seed, h('button', { class: 'small', onclick: () => act.reseed(layer.id) }, 'New seed'))),
+    h('div', { class: 'row wide' }, h('label', {}, 'Seed'), h('div', { style: { display: 'flex', gap: '6px', flexWrap: 'wrap' } }, seed,
+      h('button', { class: 'small', onclick: () => act.reseed(layer.id) }, 'New seed'),
+      h('button', { class: 'small', onclick: () => act.seedGallery(layer.id) }, 'Pick from 8'))),
+    h('div', { class: 'btnrow' },
+      h('button', { class: 'small', onclick: () => act.copyLook(layer.id) }, 'Copy look'),
+      h('button', { class: 'small', disabled: !act.hasClip(), onclick: () => act.pasteLook(layer.id) }, 'Paste look'),
+      h('button', { class: 'small', onclick: () => act.toggleLock(layer.id) }, layer.locked ? 'Unlock seed' : 'Lock seed')),
   ]));
   const kp = kindParams(layer.kind).filter((s) => !s.show || s.show(layer));
-  el.append(section('structure', `Structure · ${KINDS[layer.kind].label}`, kp.map((s) => control(s, layer.p, api))));
+  el.append(section('structure', `Structure · ${KINDS[layer.kind].label}`, kp.map((s) => control(s, layer.p, api)), null, () => act.randomize(layer.p, kindParams(layer.kind))));
   for (const sec of LAYER_SECTIONS) {
     if (sec.hide && sec.hide(layer)) continue;
     const rows = sec.params.filter((s) => !s.show || s.show(layer)).map((s) => {
@@ -141,7 +156,18 @@ function renderLayer(el, state, act, layer) {
       }
       return control(s, layer.p, api);
     });
-    el.append(section(sec.id, sec.title, rows, sec.note));
+    if (sec.id === 'edits') {
+      const p = layer.p;
+      const nEd = Object.keys(p.edits || {}).length, nEx = (p.extras || []).length, nDr = (p.drawn || []).length;
+      rows.push(h('p', { class: 'note' }, `${nEd} object edit${nEd === 1 ? '' : 's'} \u00b7 ${nEx} added \u00b7 ${nDr} drawn`),
+        h('div', { class: 'btnrow' },
+          h('button', { class: 'small', disabled: !nEd, onclick: () => act.resetEdits(layer.id, 'edits') }, 'Reset object edits'),
+          h('button', { class: 'small', disabled: !nEx, onclick: () => act.resetEdits(layer.id, 'extras') }, 'Remove added'),
+          h('button', { class: 'small', disabled: !nDr, onclick: () => act.resetEdits(layer.id, 'drawn') }, 'Clear drawn'),
+          h('button', { class: 'small', onclick: () => act.resetEdits(layer.id, 'offset') }, 'Reset shift')));
+    }
+    const dice = ['value', 'edits'].includes(sec.id) ? null : () => act.randomize(layer.p, sec.params);
+    el.append(section(sec.id, sec.title, rows, sec.note, dice));
   }
 }
 
@@ -151,7 +177,8 @@ function renderGlobals(el, state, act) {
   for (const sec of GLOBAL_SECTIONS) {
     const rows = sec.params.map((s) => control(s, g, api));
     if (sec.id === 'scene') rows.push(h('div', { class: 'btnrow' }, h('button', { onclick: act.reseedAll }, 'Reseed every layer'), h('button', { onclick: act.resetGraph }, 'Reset node graph')));
-    el.append(section(sec.id, sec.title, rows, sec.note));
+    const dice = ['sun', 'finish', 'sky'].includes(sec.id) ? () => act.randomize(g, sec.params.filter((q) => q.type !== 'color')) : null;
+    el.append(section(sec.id, sec.title, rows, sec.note, dice));
     if (sec.id === 'sun') el.append(valueGroupSection(state, act));
   }
 }
@@ -167,6 +194,12 @@ function valueGroupSection(state, act) {
       },
     }, vg.name)));
   const body = [strip];
+  const sorted = groups.map((vg, i) => [vg, i]).sort((a, b) => b[0].value - a[0].value);
+  for (let k = 0; k < sorted.length - 1; k++) {
+    const [a] = sorted[k], [b] = sorted[k + 1];
+    const gap = a.value - a.spread - (b.value + b.spread);
+    if (gap < 0.02) body.push(h('p', { class: 'note', style: { color: 'var(--accent)' } }, `\u201c${a.name}\u201d and \u201c${b.name}\u201d overlap: their light and shadow ranges touch, so those layers may merge.`));
+  }
   groups.forEach((vg, i) => {
     const name = h('input', { type: 'text', value: vg.name, style: { width: '100%' } });
     name.addEventListener('change', () => { vg.name = name.value; act.commit(true); });

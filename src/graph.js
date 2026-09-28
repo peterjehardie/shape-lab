@@ -4,6 +4,11 @@ import { noiseFor } from './rng.js';
 import { TAU, deg, clamp, newId } from './util.js';
 
 const cint = (v, a, b) => Math.max(a, Math.min(b, Math.round(v)));
+const hashF = (a, b, s) => {
+  let h = Math.imul(a | 0, 374761393) + Math.imul(b | 0, 668265263) + Math.imul(s | 0, 2147483647);
+  h = Math.imul(h ^ (h >>> 13), 1274126177);
+  return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+};
 
 // inputs: [name, default]. A default of 'x' or 'y' means "the point's own position".
 export const NODE_TYPES = {
@@ -70,11 +75,42 @@ export const NODE_TYPES = {
     },
     help: '1 inside the band, fading to 0 outside',
   },
+  quantize: {
+    label: 'Steps', cat: 'Math', inputs: [['value', 0]], outputs: ['value'], params: { steps: 4 },
+    fn: (i, p) => { const n = Math.max(1, p.steps); return [Math.round(i[0] * n) / n]; },
+    help: 'Snaps to terraces',
+  },
+  clamp: { label: 'Clamp', cat: 'Math', inputs: [['value', 0]], outputs: ['value'], params: { min: 0, max: 1 }, fn: (i, p) => [clamp(i[0], p.min, p.max)] },
+  smooth: {
+    label: 'Smooth step', cat: 'Math', inputs: [['value', 0]], outputs: ['value'], params: { edge0: 0, edge1: 1 },
+    fn: (i, p) => { const t = clamp((i[0] - p.edge0) / (p.edge1 - p.edge0 || 1e-6)); return [t * t * (3 - 2 * t)]; },
+  },
+  power: { label: 'Power', cat: 'Math', inputs: [['value', 0]], outputs: ['value'], params: { exp: 2 }, fn: (i, p) => [Math.sign(i[0]) * Math.pow(Math.abs(i[0]), p.exp)] },
+  gradient: {
+    label: 'Linear gradient', cat: 'Pattern', inputs: [['x', 'x'], ['y', 'y']], outputs: ['value'], params: { angle: 90 },
+    fn: (i, p) => { const a = deg(p.angle); return [i[0] * Math.cos(a) + i[1] * Math.sin(a)]; },
+    help: '90 = top to bottom',
+  },
+  cells: {
+    label: 'Cells', cat: 'Pattern', inputs: [['x', 'x'], ['y', 'y']], outputs: ['edge', 'center'], params: { scale: 6, seed: 1, jitter: 1 },
+    fn: (i, p, c) => {
+      const X = i[0] * p.scale * c.aspect, Y = i[1] * p.scale;
+      const cx = Math.floor(X), cy = Math.floor(Y);
+      let d1 = 9, d2 = 9;
+      for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) {
+        const h1 = hashF(cx + a, cy + b, p.seed), h2 = hashF(cx + a, cy + b, p.seed + 17);
+        const d = Math.hypot(cx + a + 0.5 + (h1 - 0.5) * p.jitter - X, cy + b + 0.5 + (h2 - 0.5) * p.jitter - Y);
+        if (d < d1) { d2 = d1; d1 = d; } else if (d < d2) d2 = d;
+      }
+      return [d2 - d1, d1];
+    },
+    help: 'edge: 0 on cell borders; center: 0 at cell centres',
+  },
   output: {
-    label: 'Displacement out', cat: 'Output', inputs: [['dx', 0], ['dy', 0]], outputs: [],
+    label: 'Graph out', cat: 'Output', inputs: [['dx', 0], ['dy', 0], ['value', 0], ['size', 0], ['density', 0]], outputs: [],
     params: { scale: 10 },
-    fn: (i, p) => [i[0] * p.scale, i[1] * p.scale],
-    help: 'scale = pixels of movement for a value of 1',
+    fn: (i, p) => [i[0] * p.scale, i[1] * p.scale, i[2], i[3], i[4]],
+    help: 'dx/dy move points (scale = pixels per 1). value lightens/darkens shapes, size grows/shrinks them, density thins them out. Each layer sets how much it listens.',
   },
 };
 
@@ -143,6 +179,8 @@ export function compileGraph(graph) {
   };
   visit(out.id, new Set());
   if (order.length === 1) return null;
+  const linked = (name) => inLinks.has(`${out.id}:${name}`);
+  const uses = { move: linked('dx') || linked('dy'), value: linked('value'), size: linked('size'), density: linked('density') };
   const idx = new Map(order.map((n, i) => [n.id, i]));
   const steps = order.map((n) => {
     const T = NODE_TYPES[n.type];
@@ -158,7 +196,7 @@ export function compileGraph(graph) {
     return { fn: T.fn, p: n.params, ins };
   });
   const vals = new Array(steps.length);
-  return (ctx) => {
+  const fn = (ctx) => {
     for (let s = 0; s < steps.length; s++) {
       const st = steps[s];
       const input = new Array(st.ins.length);
@@ -170,4 +208,53 @@ export function compileGraph(graph) {
     }
     return vals[steps.length - 1];
   };
+  fn.uses = uses;
+  return fn;
 }
+
+// Ready-made graphs. Each builds nodes and wires; the output node is always last.
+function build(spec) {
+  const nodes = spec.nodes.map(([type, x, y, params = {}]) => { const n = makeNode(type, x, y); Object.assign(n.params, params); return n; });
+  const links = spec.links.map(([a, ap, b, bp]) => ({ from: nodes[a].id, fromPort: ap, to: nodes[b].id, toPort: bp }));
+  return { nodes, links };
+}
+export const GRAPH_PRESETS = {
+  wobble: { label: 'Gentle wobble', make: defaultGraph },
+  none: { label: 'Nothing (straight shapes)', make: () => build({ nodes: [['output', 400, 100]], links: [] }) },
+  wind: {
+    label: 'Wind: tops sway, feet stay',
+    make: () => build({
+      nodes: [['position', 20, 60], ['noise', 200, 20, { scale: 1.2, octaves: 2 }], ['remap', 200, 220, { inMin: 0, inMax: 1, outMin: 1, outMax: 0 }], ['multiply', 420, 100], ['output', 620, 80, { scale: 26 }]],
+      links: [[0, 'x', 1, 'x'], [0, 'y', 1, 'y'], [0, 'y', 2, 'value'], [1, 'value', 3, 'a'], [2, 'value', 3, 'b'], [3, 'value', 4, 'dx']],
+    }),
+  },
+  vortex: {
+    label: 'Vortex in the sky',
+    make: () => build({ nodes: [['swirl', 60, 40, { cx: 0.62, cy: 0.22, radius: 0.45, angle: 70 }], ['output', 330, 60, { scale: 40 }]], links: [[0, 'dx', 1, 'dx'], [0, 'dy', 1, 'dy']] }),
+  },
+  terraces: {
+    label: 'Terraced, stepped edges',
+    make: () => build({
+      nodes: [['position', 20, 60], ['noise', 200, 20, { scale: 3 }], ['quantize', 420, 40, { steps: 3 }], ['output', 620, 60, { scale: 14 }]],
+      links: [[0, 'x', 1, 'x'], [0, 'y', 1, 'y'], [1, 'value', 2, 'value'], [2, 'value', 3, 'dy']],
+    }),
+  },
+  patchy: {
+    label: 'Patchy light (value)',
+    make: () => build({ nodes: [['noise', 60, 40, { scale: 2.5, octaves: 2 }], ['output', 330, 60, { scale: 0 }]], links: [[0, 'value', 1, 'value']] }),
+  },
+  clearings: {
+    label: 'Forest clearings (density)',
+    make: () => build({
+      nodes: [['cells', 40, 30, { scale: 3 }], ['remap', 260, 30, { inMin: 0, inMax: 0.6, outMin: -1, outMax: 1 }], ['output', 480, 60, { scale: 0 }]],
+      links: [[0, 'center', 1, 'value'], [1, 'value', 2, 'density']],
+    }),
+  },
+  depthSize: {
+    label: 'Bigger shapes up close (size)',
+    make: () => build({
+      nodes: [['depth', 40, 40], ['remap', 240, 30, { inMin: 0, inMax: 1, outMin: -0.6, outMax: 0.6 }], ['output', 460, 60, { scale: 0 }]],
+      links: [[0, 'depth', 1, 'value'], [1, 'value', 2, 'size']],
+    }),
+  },
+};

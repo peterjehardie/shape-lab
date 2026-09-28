@@ -243,3 +243,60 @@ export function wobble(poly, cx, cy, s, amt, scale, noise, off) {
     pt[1] += dy * k;
   }
 }
+
+// Corner cutting: each pass rounds the outline a little more.
+export function chaikin(p, passes = 1) {
+  let q = p;
+  for (let k = 0; k < passes; k++) {
+    const out = [];
+    for (let i = 0; i < q.length; i++) {
+      const a = q[i], b = q[(i + 1) % q.length];
+      out.push([a[0] * 0.75 + b[0] * 0.25, a[1] * 0.75 + b[1] * 0.25], [a[0] * 0.25 + b[0] * 0.75, a[1] * 0.25 + b[1] * 0.75]);
+    }
+    q = out;
+  }
+  return q;
+}
+
+export function pointInPoly(x, y, p) {
+  let inside = false;
+  for (let i = 0, j = p.length - 1; i < p.length; j = i++) {
+    const a = p[i], b = p[j];
+    if (a[1] > y !== b[1] > y && x < ((b[0] - a[0]) * (y - a[1])) / (b[1] - a[1] || 1e-9) + a[0]) inside = !inside;
+  }
+  return inside;
+}
+
+// Drop points closer than minDist to the previous kept point.
+export function thin(p, minDist) {
+  const out = [p[0]];
+  for (const q of p) {
+    const l = out[out.length - 1];
+    if (Math.hypot(q[0] - l[0], q[1] - l[1]) >= minDist) out.push(q);
+  }
+  return out;
+}
+
+// A tapered ribbon around a centre line: left side out, tip cap, right side back.
+export function ribbon(pts, widths) {
+  const n = pts.length;
+  const left = [], right = [];
+  for (let i = 0; i < n; i++) {
+    const a = pts[Math.max(0, i - 1)], b = pts[Math.min(n - 1, i + 1)];
+    const dx = b[0] - a[0], dy = b[1] - a[1];
+    const l = Math.hypot(dx, dy) || 1;
+    const nx = -dy / l, ny = dx / l, w = widths[i] / 2;
+    left.push([pts[i][0] + nx * w, pts[i][1] + ny * w]);
+    right.push([pts[i][0] - nx * w, pts[i][1] - ny * w]);
+  }
+  const e = pts[n - 1], p = pts[n - 2] || pts[0];
+  const tx = e[0] - p[0], ty = e[1] - p[1], tl = Math.hypot(tx, ty) || 1;
+  const w = widths[n - 1] / 2;
+  const cap = [];
+  for (let k = 1; k < 4; k++) {
+    const t = (k / 4) * Math.PI;
+    const nx = -ty / tl, ny = tx / tl;
+    cap.push([e[0] + (nx * Math.cos(t) + (tx / tl) * Math.sin(t)) * w, e[1] + (ny * Math.cos(t) + (ty / tl) * Math.sin(t)) * w]);
+  }
+  return [...left, ...cap, ...right.reverse()];
+}
