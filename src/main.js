@@ -299,6 +299,9 @@ const graphEditor = createGraphEditor($('#graphEditor'), {
   onCommit: () => commit(),
 });
 
+// Hosted copies cannot save files, so the export button is hidden there.
+if (window.SHAPELAB_HOSTED) $('#btnPng').hidden = true;
+
 refreshPanels();
 render();
 

@@ -167,14 +167,20 @@ export function renderLibrary(el, state, act) {
     h('span', {}, h('button', { class: 'small', onclick: () => act.loadScene(deepClone(s.scene)) }, 'Load'), ' ',
       h('button', { class: 'small ghost', onclick: () => { const list = store.get('shapelab.saved', []); list.splice(i, 1); store.set('shapelab.saved', list); renderLibrary(el, state, act); } }, '✕')))));
   const file = h('input', { type: 'file', accept: '.json,application/json', style: { display: 'none' } });
+  const importMsg = h('p', { class: 'note pad', hidden: true });
   file.addEventListener('change', async () => {
     const f = file.files[0];
     if (!f) return;
-    try { act.loadScene(JSON.parse(await f.text())); } catch { alert('That file is not a Shape Lab scene.'); }
+    try {
+      act.loadScene(JSON.parse(await f.text()));
+    } catch {
+      importMsg.textContent = 'That file is not a Shape Lab scene. Pick a .json file saved with Export JSON.';
+      importMsg.hidden = false;
+    }
   });
   root.append(h('div', { class: 'btnrow pad' },
-    h('button', { onclick: () => download('shape-lab-scene.json', JSON.stringify(state.scene, null, 1), 'application/json') }, 'Export JSON'),
-    h('button', { onclick: () => file.click() }, 'Import JSON'), file));
+    window.SHAPELAB_HOSTED ? null : h('button', { onclick: () => download('shape-lab-scene.json', JSON.stringify(state.scene, null, 1), 'application/json') }, 'Export JSON'),
+    h('button', { onclick: () => file.click() }, 'Import JSON'), file), importMsg);
 
   root.append(h('h3', {}, 'Techniques & ideas'));
   root.append(h('p', { class: 'note pad' }, 'What is in the app now (built), partly there, or still an idea. “Try” buttons change the current scene; Undo reverts them.'));
