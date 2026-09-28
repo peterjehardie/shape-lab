@@ -10,6 +10,10 @@ npx http-server -c-1 .     # or: python3 -m http.server
 
 ## What is in it
 
+Shape Lab now includes its ancestor, **Chroma Mat**: a palette-first, abstract-shape tool. The two meet in
+**palette mode** (the default): every colour comes from six palette roles and their ramps, and each layer takes
+a role and a ramp step. **Free colour** mode keeps per-layer hues with value groups.
+
 - **Depth bands, back to front:** sky, distant hills & mountains, middle distance, middle foreground,
   close foreground, very close foreground. Each band holds any number of layers.
 - **Structures** that lay down scaffolding and slots: clouds (cumulus, stratus, cirrus), mountain ridges
@@ -29,6 +33,11 @@ npx http-server -c-1 .     # or: python3 -m http.server
 - **Direct editing:** Select (drag objects, scroll to resize, Delete hides, R reseeds one), Move layer, Add,
   Draw, Erase (keys V M A D E); a seed gallery; seed locks; dice per settings section; copy/paste a look.
 - **Library** tab: scene presets, layer presets, saved scenes, JSON export/import, the ideas catalogue, notes.
+- **From Chroma Mat:** palette roles, ramps, 87-palette library, generator, checks, palette from an image, exports
+  (JSON, CSS, Blender, three.js); flat, form-light and cut-paper rendering; abstract shape families with torn edges
+  and an abstract scatter layer; abstract depth presets; per-layer soft/torn/dissolving edges, grain and fades with
+  look presets; perspective and lens warp nodes; mat and extra formats; a Measure tab; Motion (keyframes, camera
+  parallax, drift, light orbit, hue drift, graph time); paper, mid and dark interface skins.
 - `SCENE_LIBRARY_INDEX.md`: a long reference list of everything a complete scene library could contain.
 
 ## Code map
@@ -42,4 +51,6 @@ npx http-server -c-1 .     # or: python3 -m http.server
 | `src/render.js` | lighting, outlines, clones, patches, value views |
 | `src/color.js` | OKLab colour (perceived lightness = value) |
 | `src/graph.js`, `src/graph-editor.js` | distortion graph model and editor |
+| `src/palette.js`, `src/palette-ui.js` | palette model and library (from Chroma Mat), Palette tab |
+| `src/measure.js`, `src/motion.js` | Measure and Motion tabs |
 | `src/ui.js`, `src/library.js`, `src/main.js` | panels, library, app wiring |

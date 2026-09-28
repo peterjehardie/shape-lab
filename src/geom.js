@@ -195,6 +195,64 @@ const MAKERS = {
   },
 };
 
+// Abstract families from Chroma Mat. Each returns points on a unit-ish outline.
+function superellipse(s, rng) {
+  const n = rng.pick([0.6, 1, 1.5, 2, 2, 3, 5, 9]), e = 2 / n;
+  return ring(64, (t) => {
+    const c = Math.cos(t), si = Math.sin(t);
+    return [Math.sign(c) * Math.abs(c) ** e * s, Math.sign(si) * Math.abs(si) ** e * s];
+  });
+}
+function starPoly(s, rng) {
+  const k = rng.int(3, 7), inset = rng.range(0.25, 0.7);
+  const v = [];
+  for (let j = 0; j < 2 * k; j++) {
+    const t = (j / (2 * k)) * TAU - Math.PI / 2, r = j % 2 ? 1 - inset : 1;
+    v.push([Math.cos(t) * r * s, Math.sin(t) * r * s]);
+  }
+  return withCorners(v, 4);
+}
+function crescent(s, rng) {
+  const d = rng.range(0.3, 1.2), hx = d / 2, hy = Math.sqrt(Math.max(1 - hx * hx, 1e-4)), al = Math.atan2(hy, hx);
+  const pts = [];
+  for (let i = 0; i < 40; i++) { const t = al + ((TAU - 2 * al) * i) / 39; pts.push([Math.cos(t), Math.sin(t)]); }
+  for (let i = 0; i < 26; i++) { const t = Math.PI + al - (2 * al * i) / 25; pts.push([d + Math.cos(t), Math.sin(t)]); }
+  const cx = pts.reduce((a, q) => a + q[0], 0) / pts.length;
+  return { poly: pts.map(([x, y]) => [(x - cx) * s, y * s]), corners: [0, 39] };
+}
+function wedgeOrArc(s, rng, arc) {
+  const span = rng.range(0.3, 1.6) / 1.8 * TAU * 0.92, m = 28, v = [];
+  if (!arc) {
+    v.push([0, 0]);
+    for (let i = 0; i <= m; i++) { const t = -span / 2 + (span * i) / m; v.push([Math.cos(t), Math.sin(t)]); }
+  } else {
+    const ri = 1 - rng.range(0.25, 0.6);
+    for (let i = 0; i <= m; i++) { const t = -span / 2 + (span * i) / m; v.push([Math.cos(t), Math.sin(t)]); }
+    for (let i = m; i >= 0; i--) { const t = -span / 2 + (span * i) / m; v.push([ri * Math.cos(t), ri * Math.sin(t)]); }
+  }
+  const b = bbox(v), cx = (b.x0 + b.x1) / 2, cy = (b.y0 + b.y1) / 2;
+  return { poly: v.map(([x, y]) => [(x - cx) * s, (y - cy) * s]), corners: arc ? [0, m, m + 1, 2 * m + 1] : [0, 1, m + 1] };
+}
+function band(s, rng) {
+  const harm = rng.int(2, 5), amp = rng.range(0.12, 0.4), H = [];
+  for (let h = 1; h <= harm; h++) H.push([h, rng.range(0, TAU), (0.4 + rng.next()) / h ** 0.8]);
+  const nt = 32, top = [], bot = [];
+  for (let i = 0; i <= nt; i++) {
+    const x = -1 + (2 * i) / nt;
+    let a = 0, b = 0;
+    for (const [h, ph, w] of H) { a += w * Math.sin(h * (x + 1) * 2 + ph); b += w * Math.cos(h * (x + 1) * 1.7 + ph * 1.3); }
+    top.push([x * s, (-0.35 + amp * a * 0.35) * s]);
+    bot.push([x * s, (0.35 + amp * b * 0.35) * s]);
+  }
+  return { poly: [...top, ...bot.reverse()], corners: [0, nt, nt + 1, 2 * nt + 1] };
+}
+MAKERS.superellipse = superellipse;
+MAKERS.star = starPoly;
+MAKERS.crescent = crescent;
+MAKERS.wedge = (s, rng) => wedgeOrArc(s, rng, false);
+MAKERS.arcband = (s, rng) => wedgeOrArc(s, rng, true);
+MAKERS.band = band;
+
 export const VOCAB = [
   ['circle', 'Circle'],
   ['ellipse', 'Ellipse'],
@@ -205,17 +263,25 @@ export const VOCAB = [
   ['triangle', 'Triangle'],
   ['shard', 'Shard'],
   ['spiky', 'Spiky star'],
+  ['superellipse', 'Superellipse'],
+  ['star', 'Star polygon'],
+  ['crescent', 'Crescent'],
+  ['wedge', 'Wedge'],
+  ['arcband', 'Arc band'],
+  ['band', 'Wavy band'],
 ];
 export const VOCAB_SETS = {
   'mix-soft': ['circle', 'ellipse', 'blob', 'leaf'],
   'mix-foliage': ['blob', 'blob', 'circle', 'leaf', 'ellipse'],
   'mix-hard': ['square', 'triangle', 'shard'],
+  'mix-abstract': ['superellipse', 'star', 'blob', 'shard', 'crescent', 'wedge', 'arcband', 'band'],
   'mix-all': VOCAB.map((v) => v[0]),
 };
 export const VOCAB_OPTIONS = [
   ['mix-soft', 'Mix: soft'],
   ['mix-foliage', 'Mix: foliage'],
   ['mix-hard', 'Mix: hard'],
+  ['mix-abstract', 'Mix: abstract (Chroma Mat)'],
   ['mix-all', 'Mix: everything'],
   ...VOCAB,
 ];
@@ -224,8 +290,9 @@ export function makeShape(type, cx, cy, s, ang, rng, opts = {}) {
   const maker = MAKERS[type] || MAKERS.circle;
   const { poly, corners } = maker(s, rng, opts);
   const c = Math.cos(ang), sn = Math.sin(ang);
+  const sx = opts.stretch || 1, sy = 1 / (opts.stretch || 1);
   for (const pt of poly) {
-    const x = pt[0], y = pt[1];
+    const x = pt[0] * sx, y = pt[1] * sy;
     pt[0] = cx + x * c - y * sn;
     pt[1] = cy + x * sn + y * c;
   }
@@ -299,4 +366,23 @@ export function ribbon(pts, widths) {
     cap.push([e[0] + (nx * Math.cos(t) + (tx / tl) * Math.sin(t)) * w, e[1] + (ny * Math.cos(t) + (ty / tl) * Math.sin(t)) * w]);
   }
   return [...left, ...cap, ...right.reverse()];
+}
+
+// Torn edges (Chroma Mat's roughness): many sine ripples at Fibonacci-like frequencies
+// push the outline in and out, plus a little random jitter.
+export function roughen(poly, cx, cy, amt, grain, rng) {
+  const N = poly.length;
+  const fmax = N / 3;
+  const fs = [2, 3, 5, 8, 13, 21, 34, 55, 89].map((f) => [Math.min(fmax, Math.max(1, Math.round(f * grain))), rng.range(0, TAU), 0.6 + rng.next() * 0.8]);
+  let nrm = 0;
+  for (const [f, , w] of fs) nrm += w / f ** 0.6;
+  for (let i = 0; i < N; i++) {
+    const u = i / N;
+    let d = 0;
+    for (const [f, ph, w] of fs) d += (Math.sin(f * u * TAU + ph) * w) / f ** 0.6;
+    d = (d / nrm) * 2.2 + (rng.next() - 0.5) * 0.35 * grain;
+    const k = 1 + d * amt * 0.12;
+    poly[i][0] = cx + (poly[i][0] - cx) * k;
+    poly[i][1] = cy + (poly[i][1] - cy) * k;
+  }
 }

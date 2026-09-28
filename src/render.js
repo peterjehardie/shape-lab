@@ -1,7 +1,8 @@
 // Drawing: sky, water, under-effects (halo, clones, contact), lit fills, outlines, hatching,
 // rim and glow, dappled patches, light shafts, depth blur, finish and value views.
-import { makeStyle, hexToLab, hueAB, labCss, labToRgb } from './color.js';
-import { valueGroupIndex, layerDepth } from './scene.js';
+import { makeStyle, makeRampStyle, hexToLab, hueAB, labCss, labToRgb } from './color.js';
+import { valueGroupIndex, layerDepth, resolveRole } from './scene.js';
+import { rampOf, lchToLab, ROLES } from './palette.js';
 import { groupsFor, groupKey } from './pipeline.js';
 import { clamp, lerp, hash01, hashStr, hashInts, smoothstep, deg } from './util.js';
 import { noiseFor } from './rng.js';
@@ -36,6 +37,24 @@ export function layerStyles(scene, layer, grey) {
   const nt = hexToLab(g.nearTint || '#c98a4a');
   const near = (g.nearTintAmt || 0) * depth * depth;
   const steps = p.lightSteps === 'inherit' || p.lightSteps === undefined ? +g.lightSteps : +p.lightSteps;
+  if (g.colorMode !== 'free' && g.palette) {
+    // Palette mode: colours come from a role's ramp; shading walks along that ramp.
+    const P = g.palette;
+    const [role, step] = resolveRole(layer);
+    const hz = lchToLab(rampOf(P, g.hazeRole || 'light')[3]);
+    const mkR = (r, st, lOff = 0) => makeRampStyle({
+      ramp: rampOf(P, r).map(lchToLab), pos: clamp(2 + st, 0, 4), spread: p.spreadMul,
+      haze: { lab: hz, t: haze, desat: 0.5 }, lOff: lOff + p.valueNudge,
+      steps, bias: p.lightBias, strength: g.lightStrength, grey,
+    });
+    const base = mkR(role, step);
+    const cache = { [role]: base };
+    const roleStyle = (r) => cache[r] || (cache[r] = mkR(r, 0));
+    return {
+      base, trunk: mkR(p.trunkRole || 'dark', 0), accent: mkR('accent', 0), snow: mkR('light', 1),
+      roleStyle, vg: { value: base.L, spread: 0.08 }, depth, haze, steps, palette: P, role,
+    };
+  }
   const mk = (hex, lOff = 0) => {
     const lab = hexToLab(hex);
     let a = lerp(lab[1] * p.chroma, nt[1], near), b = lerp(lab[2] * p.chroma, nt[2], near);
@@ -49,9 +68,10 @@ export function layerStyles(scene, layer, grey) {
       steps, bias: p.lightBias, strength: g.lightStrength, grey,
     });
   };
+  const base = mk(p.color);
   return {
-    base: mk(p.color), trunk: mk(p.trunkColor, p.trunkValue), accent: mk(p.accentColor, p.accentValue),
-    snow: mk('#eef2f8', p.snowValue || 0), vg, depth, haze, steps,
+    base, trunk: mk(p.trunkColor, p.trunkValue), accent: mk(p.accentColor, p.accentValue),
+    snow: mk('#eef2f8', p.snowValue || 0), roleStyle: () => base, vg, depth, haze, steps,
   };
 }
 
@@ -162,7 +182,45 @@ function fillBranch(ctx, it, sty, tn, L, lod) {
 }
 
 function styleFor(st, it) {
+  if (st.roleMap && !it.ground && !it.detail) {
+    const r = st.roleMap.get(it.ob);
+    if (r) return st.roleStyle(r);
+  }
   return it.col === 'trunk' ? st.trunk : it.col === 'accent' ? st.accent : it.col === 'snow' ? st.snow : st.base;
+}
+
+// Chroma Mat's role assignment: the smallest object or two become the accent, the rest go to
+// whichever role is furthest below its target share of the frame.
+function rolesByArea(geo, layer, P, W, H) {
+  const key = JSON.stringify([P.props, layer.seed]);
+  if (geo.roleCache && geo.roleCache.key === key) return geo.roleCache.map;
+  const obs = new Map();
+  for (const it of geo.items) {
+    if (it.ground || it.detail) continue;
+    const b = it.bb;
+    const a = Math.max(0, Math.min(W, b.x1) - Math.max(0, b.x0)) * Math.max(0, Math.min(H, b.y1) - Math.max(0, b.y0)) * 0.7;
+    obs.set(it.ob, (obs.get(it.ob) || 0) + a / (W * H));
+  }
+  const list = [...obs].map(([ob, a]) => ({ ob, a })).sort((x, y) => y.a - x.a);
+  const got = { dominant: 0, secondary: 0, accent: 0, dark: 0, light: 0 };
+  const map = new Map();
+  const accN = P.props.accent > 0 ? (P.props.accent > 0.06 ? 2 : 1) : 0;
+  const inWin = list.filter((o) => o.a > 0.0005);
+  for (let i = 0; i < accN && inWin.length > 1; i++) { const o = inWin.pop(); map.set(o.ob, 'accent'); got.accent += o.a; }
+  for (const o of list) {
+    if (map.has(o.ob)) continue;
+    let best = 'dominant', bv = -1e9;
+    for (const r of ['dominant', 'secondary', 'dark', 'light']) {
+      const t = P.props[r];
+      if (!(t > 0)) continue;
+      const v = (t - got[r]) / t + hash01(layer.seed, o.ob, r) * 0.15;
+      if (v > bv) { bv = v; best = r; }
+    }
+    map.set(o.ob, best);
+    got[best] += o.a;
+  }
+  geo.roleCache = { key, map };
+  return map;
 }
 function groupColor(key) {
   return `hsl(${hashStr(String(key)) % 360} 60% 58%)`;
@@ -191,13 +249,30 @@ function fillItem(ctx, it, idx, st, L, lg, layer, view, lod) {
   const tn = toneFor(it, idx, layer);
   // Tiny shapes: one flat colour, read off the group's volume at the shape's centre.
   if ((it.r < lod || it.detail) && !it.facets && !it.ground) {
-    let shade = it.n3 ? dot3(it.n3, L) : 0.15;
+    let shade = st.renderStyle === 'flat' || st.renderStyle === 'paper' ? 0 : it.n3 ? dot3(it.n3, L) : 0.15;
     const grp = lg.map.get(lg.keys[idx]);
     if (p.volume > 0 && grp && (grp.n > 1 || p.lightGroup === 'layer')) {
       const sx = clamp(((it.c[0] - grp.cx) * L.dx + (it.c[1] - grp.cy) * L.dy) / grp.r, -1, 1);
       shade = lerp(shade, sx * L.k + Math.sqrt(1 - sx * sx) * L.z, p.volume);
     }
     ctx.fillStyle = sty.css(shade, tn.lo, tn.hr);
+    ctx.fill(it.p2d);
+    return;
+  }
+  const rs = st.renderStyle;
+  if (rs === 'flat' || rs === 'paper') {
+    ctx.fillStyle = sty.css(0, tn.lo, tn.hr);
+    ctx.fill(it.p2d);
+    return;
+  }
+  if (rs === 'form' && !it.facets && !it.ground) {
+    // Form light: three ramp steps across the shape, light side to shadow side.
+    const v = it.vol || { cx: it.c[0], cy: it.c[1], r: it.r };
+    const g = ctx.createLinearGradient(v.cx + L.dx * v.r, v.cy + L.dy * v.r, v.cx - L.dx * v.r, v.cy - L.dy * v.r);
+    g.addColorStop(0, sty.css(1, tn.lo, tn.hr));
+    g.addColorStop(0.5, sty.css(0, tn.lo, tn.hr));
+    g.addColorStop(1, sty.css(-1, tn.lo, tn.hr));
+    ctx.fillStyle = g;
     ctx.fill(it.p2d);
     return;
   }
@@ -456,9 +531,20 @@ const growBB = (bb, b, dx = 0, dy = 0) => {
 function drawUnder(ctx, layer, geo, st, L, o, grey) {
   const p = layer.p;
   const g = o.scene.globals;
-  const sh = grey ? [0, 0] : hueAB(g.shadowHue, 0.06);
+  let sh = grey ? [0, 0] : hueAB(g.shadowHue, 0.06);
+  if (st.palette && !grey) { const d = lchToLab(st.palette.roles.dark); sh = [d[1] * 0.7, d[2] * 0.7]; }
   const shadowCol = labCss(0.42, sh[0], sh[1]);
   const solid = geo.items.filter((it) => !it.ground && !it.detail);
+  if (g.renderStyle === 'paper' && g.paperShadow > 0) {
+    // Cut paper: every layer throws a small soft shadow onto whatever is behind it.
+    const dist = Math.min(o.W, o.H) * 0.012 * (1 + g.paperShadow * 2);
+    const tx = -L.dx * dist, ty = -L.dy * dist;
+    const dk = st.palette && !grey ? lchToLab(rampOf(st.palette, 'dark')[0]) : [0.2, 0, 0];
+    softPass(ctx, o, (ac, bb) => {
+      ac.translate(tx, ty);
+      for (const it of geo.items) { if (it.detail) continue; ac.fill(it.p2d); growBB(bb, it.bb, tx, ty); }
+    }, { color: labCss(dk[0], grey ? 0 : dk[1], grey ? 0 : dk[2]), blur: Math.min(o.W, o.H) * 0.006, alpha: 0.25 + 0.45 * g.paperShadow, comp: 'source-over', maskLand: false });
+  }
   if (p.halo > 0) {
     const hz = hexToLab(g.hazeColor || g.skyHorizon);
     softPass(ctx, o, (ac, bb) => { for (const it of solid) { ac.fill(it.p2d); growBB(bb, it.bb); } }, {
@@ -522,15 +608,17 @@ function drawUnder(ctx, layer, geo, st, L, o, grey) {
 // like cloud shadows drifting over distant hills.
 const fieldCache = new Map();
 function dappleField(layer, W, H, s) {
-  const p = layer.p;
-  const key = [layer.seed, p.dappleScale, p.dappleStretch, W, H].join(',');
+  return fieldFor(hashInts(layer.seed, 555), layer.p.dappleScale, layer.p.dappleStretch, W, H, s);
+}
+function fieldFor(seed, scale, stretch, W, H, s) {
+  const key = [seed, scale, stretch, W, H, s].join(',');
   let f = fieldCache.get(key);
   if (f) return f;
   const w = Math.ceil(W / s), h = Math.ceil(H / s);
   const data = new Float32Array(w * h);
-  const nz = noiseFor(hashInts(layer.seed, 555));
-  const sc = p.dappleScale * 3;
-  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) data[y * w + x] = nz.fbm((((x * s) / H) * sc) / p.dappleStretch, ((y * s) / H) * sc, 3);
+  const nz = noiseFor(seed);
+  const sc = scale * 3;
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) data[y * w + x] = nz.fbm((((x * s) / H) * sc) / stretch, ((y * s) / H) * sc, 3);
   f = { w, h, data };
   if (fieldCache.size > 30) fieldCache.clear();
   fieldCache.set(key, f);
@@ -579,17 +667,31 @@ function drawSky(ctx, layer, st, g, L, o, grey) {
   const c = (lab, L0) => labCss(L0, grey ? 0 : lab[1] * p.chroma, grey ? 0 : lab[2] * p.chroma);
   const hy = g.horizonY * H;
   const grad = ctx.createLinearGradient(0, 0, 0, hy);
-  grad.addColorStop(0, c(top, v - p.skyDrop));
-  grad.addColorStop(0.55, c([0, lerp(top[1], hor[1], 0.45), lerp(top[2], hor[2], 0.45)], v - p.skyDrop * 0.35));
-  grad.addColorStop(1, c(hor, v + p.skyDrop * 0.2));
-  ctx.fillStyle = grad;
-  ctx.fillRect(0, 0, W, hy + 1);
-  ctx.fillStyle = c(hor, v + p.skyDrop * 0.1);
-  ctx.fillRect(0, hy, W, H - hy);
+  const flat = g.renderStyle === 'flat' || g.renderStyle === 'paper';
+  if (st.palette) {
+    // Palette sky: the role's ramp, a touch darker at the top, lighter at the horizon.
+    const k = flat ? 0 : p.skyDrop / 0.14;
+    grad.addColorStop(0, st.base.css(-0.9 * k));
+    grad.addColorStop(0.55, st.base.css(-0.3 * k));
+    grad.addColorStop(1, st.base.css(0.5 * k));
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, W, hy + 1);
+    ctx.fillStyle = st.base.css(0.4 * k);
+    ctx.fillRect(0, hy, W, H - hy);
+  } else {
+    grad.addColorStop(0, c(top, v - p.skyDrop));
+    grad.addColorStop(0.55, c([0, lerp(top[1], hor[1], 0.45), lerp(top[2], hor[2], 0.45)], v - p.skyDrop * 0.35));
+    grad.addColorStop(1, c(hor, v + p.skyDrop * 0.2));
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, W, hy + 1);
+    ctx.fillStyle = c(hor, v + p.skyDrop * 0.1);
+    ctx.fillRect(0, hy, W, H - hy);
+  }
   if ((p.glow > 0 || p.sunDisc > 0) && L.z < 0.35) {
     const strength = clamp((0.35 - L.z) / 1.1);
     const [sx, sy] = sunPos(g, L, W, H);
-    const ab = grey ? [0, 0] : hueAB(g.sunHue, 0.11);
+    let ab = grey ? [0, 0] : hueAB(g.sunHue, 0.11);
+    if (st.palette && !grey) { const lt = lchToLab(st.palette.roles.light); ab = [lt[1], lt[2]]; }
     const col = labToRgb(Math.min(1, v + 0.12), ab[0], ab[1]);
     if (p.glow > 0) {
       const r = p.glowSize * Math.max(W, H) * 0.6;
@@ -790,6 +892,8 @@ function drawLayer(ctx, layer, geo, st, L, o, grey) {
       if (i === items.length || keys[i] !== keys[start]) { runs.push([start, i]); start = i; }
     }
   }
+  st.renderStyle = view === 'groups' ? 'modelled' : o.scene.globals.renderStyle || 'modelled';
+  st.roleMap = st.palette && p.roleMix ? rolesByArea(geo, layer, st.palette, o.W, o.H) : null;
   const lc = lineOn ? lineColor(p, st, o.scene.globals, grey) : null;
   const behind = lineOn && p.lineLost > 0 ? { at: behindSampler(o), L: st.base.L } : null;
   const lod = view === 'groups' ? 0 : 3.5 * o.u;
@@ -868,6 +972,161 @@ function drawSelection(ctx, geos, sel, u) {
   ctx.restore();
 }
 
+// Camera parallax (near layers move more than far ones) and drifting sky layers.
+export function layerOffset(scene, layer, W, H, t = 0, drift = 0) {
+  const g = scene.globals;
+  const d = layerDepth(scene, layer);
+  const par = d * (layer.p.parallax ?? 1);
+  let dx = -(g.camX || 0) * W * par, dy = -(g.camY || 0) * H * par;
+  const drifting = !!drift && layer.band === 'sky' && layer.kind !== 'sky';
+  if (drifting) dx = ((((dx + t * drift * W * 0.015 * (0.4 + d * 6)) % W) + W) % W);
+  return [dx, dy, drifting];
+}
+
+// A layer either paints straight onto the picture, or (for blur, fades, noise masks and
+// grain) onto its own canvas first, which is then treated and composited.
+function drawLayerBody(ctx, lctx, LC, layer, geo, st, L, o, grey, blur) {
+  const p = layer.p;
+  const look = o.view !== 'groups' && ((p.opacity ?? 1) < 0.999 || p.opGrade > 0 || (p.mask && p.mask !== 'none') || p.texture > 0);
+  if (blur <= 0.35 && !look) { drawLayer(ctx, layer, geo, st, L, o, grey); return; }
+  lctx.setTransform(1, 0, 0, 1, 0, 0);
+  lctx.globalCompositeOperation = 'source-over';
+  lctx.globalAlpha = 1;
+  lctx.clearRect(0, 0, o.W, o.H);
+  drawLayer(lctx, layer, geo, st, L, o, grey);
+  if (look) {
+    if (p.texture > 0 && o.view !== 'notan2' && o.view !== 'notan3') applyTexture(lctx, LC, layer, o, grey);
+    if (p.mask && p.mask !== 'none') applyMask(lctx, LC, layer, o);
+    if (p.opGrade > 0) applyGrade(lctx, geo, p, o);
+  }
+  ctx.save();
+  ctx.globalAlpha = p.opacity ?? 1;
+  if (blur > 0.35 && blur < 3) {
+    // Small blurs: shrink and stretch back with smoothing. Far cheaper than a filter.
+    const k = 1 / (1 + blur * 0.8);
+    const sw = Math.ceil(o.W * k), sh = Math.ceil(o.H * k);
+    const SB = o.smallBlur;
+    if (SB.width !== sw || SB.height !== sh) { SB.width = sw; SB.height = sh; }
+    const sc = SB.getContext('2d');
+    sc.clearRect(0, 0, sw, sh);
+    sc.imageSmoothingEnabled = true;
+    sc.drawImage(LC, 0, 0, sw, sh);
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(SB, 0, 0, sw, sh, 0, 0, o.W, o.H);
+  } else {
+    if (blur >= 3) ctx.filter = `blur(${blur}px)`;
+    ctx.drawImage(LC, 0, 0);
+  }
+  ctx.restore();
+}
+
+// Grain inside the shapes (Chroma Mat's colour noise): a noise image blended over the
+// layer's own pixels only.
+const texCache = new Map();
+function textureImage(layer, W, H, grey) {
+  const p = layer.p;
+  const s = 2;
+  const key = [layer.seed, p.textureScale, grey ? 0 : p.textureHue, W, H].join(',');
+  let c = texCache.get(key);
+  if (c) return c;
+  const w = Math.ceil(W / s), h = Math.ceil(H / s);
+  c = document.createElement('canvas');
+  c.width = w;
+  c.height = h;
+  const cx = c.getContext('2d');
+  const img = cx.createImageData(w, h);
+  const n0 = noiseFor(hashInts(layer.seed, 901)), n1 = noiseFor(hashInts(layer.seed, 902)), n2 = noiseFor(hashInts(layer.seed, 903));
+  const f = 1 / (4 * p.textureScale);
+  const hue = grey ? 0 : p.textureHue;
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const X = x * f, Y = y * f;
+      const v = 128 + (n0.fbm(X, Y, 3) * 0.75 + (hash01(x, y, layer.seed) - 0.5) * 0.5) * 170;
+      const i = (y * w + x) * 4;
+      if (hue) {
+        const hr = n1.fbm(X * 0.5, Y * 0.5, 2) * hue * 80, hb = n2.fbm(X * 0.5, Y * 0.5, 2) * hue * 80;
+        img.data[i] = clamp(v + hr, 0, 255);
+        img.data[i + 1] = clamp(v - (hr + hb) * 0.5, 0, 255);
+        img.data[i + 2] = clamp(v + hb, 0, 255);
+      } else img.data[i] = img.data[i + 1] = img.data[i + 2] = clamp(v, 0, 255);
+      img.data[i + 3] = 255;
+    }
+  }
+  cx.putImageData(img, 0, 0);
+  if (texCache.size > 12) texCache.clear();
+  texCache.set(key, c);
+  return c;
+}
+function applyTexture(lctx, LC, layer, o, grey) {
+  const p = layer.p;
+  const tex = textureImage(layer, o.W, o.H, grey);
+  const T = o.texCanvas;
+  if (T.width !== o.W || T.height !== o.H) { T.width = o.W; T.height = o.H; }
+  const tc = T.getContext('2d');
+  tc.globalCompositeOperation = 'source-over';
+  tc.clearRect(0, 0, o.W, o.H);
+  tc.imageSmoothingEnabled = true;
+  tc.drawImage(tex, 0, 0, o.W, o.H);
+  tc.globalCompositeOperation = 'destination-in';
+  tc.drawImage(LC, 0, 0);
+  tc.globalCompositeOperation = 'source-over';
+  lctx.save();
+  lctx.globalCompositeOperation = p.textureBlend || 'soft-light';
+  lctx.globalAlpha = Math.min(1, p.texture);
+  lctx.drawImage(T, 0, 0);
+  if (p.texture > 1) { lctx.globalAlpha = p.texture - 1; lctx.drawImage(T, 0, 0); }
+  lctx.restore();
+}
+
+// Noise mask (Chroma Mat): noise decides which parts of the layer survive. "Dissolve" cuts
+// holes; "Torn" adds noise to a blurred copy of the outline so only the rim breaks up.
+function applyMask(lctx, LC, layer, o) {
+  const p = layer.p;
+  const s = 2;
+  const f = fieldFor(hashInts(layer.seed, 777), p.maskScale, p.maskStretch, o.W, o.H, s);
+  const M = o.maskCanvas;
+  if (M.width !== f.w || M.height !== f.h) { M.width = f.w; M.height = f.h; }
+  const mc = M.getContext('2d', { willReadFrequently: true });
+  mc.setTransform(1, 0, 0, 1, 0, 0);
+  let A = null;
+  if (p.mask === 'torn') {
+    mc.clearRect(0, 0, f.w, f.h);
+    mc.filter = `blur(${Math.max(0.5, p.maskReach * o.u / s)}px)`;
+    mc.drawImage(LC, 0, 0, f.w, f.h);
+    mc.filter = 'none';
+    A = mc.getImageData(0, 0, f.w, f.h).data;
+  }
+  const img = mc.createImageData(f.w, f.h);
+  const wd = lerp(0.45, 0.01, clamp(p.maskSharp));
+  for (let i = 0; i < f.data.length; i++) {
+    const n = clamp(f.data[i] * 0.75 + 0.5);
+    const v = A ? A[i * 4 + 3] / 255 + p.maskDepth * (n - 0.5) : n;
+    img.data[i * 4 + 3] = clamp((v - p.maskClip) / wd + 0.5) * 255;
+  }
+  mc.putImageData(img, 0, 0);
+  lctx.save();
+  lctx.globalCompositeOperation = 'destination-in';
+  lctx.imageSmoothingEnabled = true;
+  lctx.drawImage(M, 0, 0, f.w, f.h, 0, 0, o.W, o.H);
+  lctx.restore();
+}
+
+// Graded opacity: the layer fades toward one side.
+function applyGrade(lctx, geo, p, o) {
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const it of geo.items) { x0 = Math.min(x0, it.bb.x0); y0 = Math.min(y0, it.bb.y0); x1 = Math.max(x1, it.bb.x1); y1 = Math.max(y1, Math.min(o.H, it.bb.y1)); }
+  const a = deg(p.opAngle), dx = Math.cos(a), dy = Math.sin(a);
+  const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2, r = Math.abs((x1 - x0) / 2 * dx) + Math.abs((y1 - y0) / 2 * dy);
+  const g = lctx.createLinearGradient(cx - dx * r, cy - dy * r, cx + dx * r, cy + dy * r);
+  g.addColorStop(0, 'rgba(0,0,0,1)');
+  g.addColorStop(1, `rgba(0,0,0,${1 - p.opGrade})`);
+  lctx.save();
+  lctx.globalCompositeOperation = 'destination-in';
+  lctx.fillStyle = g;
+  lctx.fillRect(0, 0, o.W, o.H);
+  lctx.restore();
+}
+
 export function renderScene(ctx, scene, geos, o) {
   const g = scene.globals;
   const L = lightVec(g);
@@ -908,34 +1167,16 @@ export function renderScene(ctx, scene, geos, o) {
     const geo = geos.get(layer.id);
     if (!geo) continue;
     ensurePaths(geo);
-    if (o.view !== 'groups') drawUnder(ctx, layer, geo, st, L, o, grey);
+    const [ox, oy, wrap] = layerOffset(scene, layer, o.W, o.H, o.time, o.drift);
     const blur = o.view === 'groups' ? 0 : (g.dof || 0) * 8 * o.u * Math.abs(st.depth - (g.focus ?? 0.8)) + (layer.p.blur || 0) * o.u;
-    if (blur > 0.35) {
-      lctx.setTransform(1, 0, 0, 1, 0, 0);
-      lctx.globalCompositeOperation = 'source-over';
-      lctx.globalAlpha = 1;
-      lctx.clearRect(0, 0, o.W, o.H);
-      drawLayer(lctx, layer, geo, st, L, o, grey);
+    for (const dx of wrap ? [ox, ox - o.W] : [ox]) {
       ctx.save();
-      if (blur < 3) {
-        // Small blurs: shrink and stretch back with smoothing. Far cheaper than a filter.
-        const k = 1 / (1 + blur * 0.8);
-        const sw = Math.ceil(o.W * k), sh = Math.ceil(o.H * k);
-        const SB = o.smallBlur;
-        if (SB.width !== sw || SB.height !== sh) { SB.width = sw; SB.height = sh; }
-        const sc = SB.getContext('2d');
-        sc.clearRect(0, 0, sw, sh);
-        sc.imageSmoothingEnabled = true;
-        sc.drawImage(LC, 0, 0, sw, sh);
-        ctx.imageSmoothingEnabled = true;
-        ctx.drawImage(SB, 0, 0, sw, sh, 0, 0, o.W, o.H);
-      } else {
-        ctx.filter = `blur(${blur}px)`;
-        ctx.drawImage(LC, 0, 0);
-      }
+      ctx.translate(dx, oy);
+      if (o.view !== 'groups') drawUnder(ctx, layer, geo, st, L, o, grey);
+      drawLayerBody(ctx, lctx, LC, layer, geo, st, L, o, grey, blur);
       ctx.restore();
-    } else drawLayer(ctx, layer, geo, st, L, o, grey);
-    if (layer.band !== 'sky') mc.fill(geo.union);
+      if (layer.band !== 'sky') { mc.save(); mc.translate(dx, oy); mc.fill(geo.union); mc.restore(); }
+    }
     shapes += geo.items.length;
   }
   if (!raysDone) drawRays(ctx, g, L, o, grey);
@@ -957,9 +1198,10 @@ export function pick(ctx, scene, geos, x, y, H) {
     if (layer.kind === 'water') { if (y >= layer.p.waterY * H) return { layerId: layer.id }; continue; }
     const geo = geos.get(layer.id);
     if (!geo || !geo.pathsReady) continue;
+    const [ox, oy] = layerOffset(scene, layer, ctx.canvas.width, H);
     for (let i = geo.items.length - 1; i >= 0; i--) {
       const it = geo.items[i];
-      if (ctx.isPointInPath(it.p2d, x, y)) return { layerId: layer.id, ob: it.ob, ground: it.ground || it.detail };
+      if (ctx.isPointInPath(it.p2d, x - ox, y - oy)) return { layerId: layer.id, ob: it.ob, ground: it.ground || it.detail };
     }
   }
   return null;

@@ -3,15 +3,20 @@ import { deepClone, lerp } from './util.js';
 import { defaultScene, ensureParams, makeLayer, sortLayers, aspectSize, bandById, defaultGlobals, LAYER_SECTIONS } from './scene.js';
 import { defaultGraph, compileGraph } from './graph.js';
 import { buildGeometry, graphHash, dropCache } from './pipeline.js';
-import { renderScene, pick } from './render.js';
+import { renderScene, pick, layerOffset } from './render.js';
 import { renderLayerPanel, renderInspector } from './ui.js';
 import { renderLibrary, download } from './library.js';
 import { createGraphEditor } from './graph-editor.js';
 import { KINDS } from './structures.js';
 import { thin } from './geom.js';
+import { renderPaletteTab } from './palette-ui.js';
+import { measure, renderMeasure } from './measure.js';
+import { M, frameScene, tick, renderMotion } from './motion.js';
+import { ROLES, lchHex, lchToLab } from './palette.js';
+import { labCss } from './color.js';
 
 const $ = (s) => document.querySelector(s);
-const AUTOSAVE = 'shapelab.current.v2';
+const AUTOSAVE = 'shapelab.current.v3';
 
 function normalize(scene) {
   scene.globals = { ...defaultGlobals(), ...(scene.globals || {}) };
@@ -39,12 +44,16 @@ const state = {
   selObj: null,
   drawPts: null,
   clip: null,
+  frame: null,
+  showBalance: false,
+  metrics: null,
 };
 state.selected = state.scene.layers.find((l) => l.kind === 'trees' && l.band === 'close')?.id || 'scene';
 
 // ---- history ----
 const history = { stack: [JSON.stringify(state.scene)], index: 0 };
 function commit(rebuildPanels = false) {
+  if (!M.playing) state.frame = null;
   const snap = JSON.stringify(state.scene);
   if (snap !== history.stack[history.index]) {
     history.stack.length = history.index + 1;
@@ -73,7 +82,7 @@ const redo = () => history.index < history.stack.length - 1 && restore(history.i
 const canvas = $('#view');
 const ctx = canvas.getContext('2d');
 const mk = () => document.createElement('canvas');
-const buffers = { cloneA: mk(), cloneB: mk(), rimCanvas: mk(), landMask: mk(), layerCanvas: mk(), rayA: mk(), rayB: mk(), behind: mk(), smallBlur: mk() };
+const buffers = { cloneA: mk(), cloneB: mk(), rimCanvas: mk(), landMask: mk(), layerCanvas: mk(), rayA: mk(), rayB: mk(), behind: mk(), smallBlur: mk(), texCanvas: mk(), maskCanvas: mk() };
 let geos = new Map();
 let pending = false;
 let graphFn = null, gKey = null;
@@ -84,26 +93,45 @@ function requestRender() {
   pending = true;
   requestAnimationFrame(() => { pending = false; render(); });
 }
-function buildAll(scene, W, H) {
+function buildAll(scene, W, H, time = 0) {
   const gh = graphHash(scene.graph);
   if (gh !== gKey) { graphFn = compileGraph(scene.graph); gKey = gh; }
   const out = new Map();
   for (const layer of scene.layers) {
     if (layer.kind === 'sky' || layer.kind === 'water' || !layer.visible) continue;
-    out.set(layer.id, buildGeometry(layer, scene, graphFn ? { fn: graphFn } : null, gh, W, H));
+    out.set(layer.id, buildGeometry(layer, scene, graphFn ? { fn: graphFn, time } : null, gh, W, H));
   }
   return out;
 }
+const motionTime = () => M.time * M.flow.graph;
 function render() {
-  const [W, H] = aspectSize(state.scene.globals.aspect);
+  const sc = state.frame || state.scene;
+  const [W, H] = aspectSize(sc.globals.aspect);
   if (canvas.width !== W || canvas.height !== H) { canvas.width = W; canvas.height = H; }
+  fitCanvas();
   const t0 = performance.now();
-  geos = buildAll(state.scene, W, H);
+  geos = buildAll(sc, W, H, motionTime());
   const t1 = performance.now();
-  const info = renderScene(ctx, state.scene, geos, {
+  const info = renderScene(ctx, sc, geos, {
     W, H, u: Math.min(W, H) / 900, view: state.view, structure: state.structure,
-    selectedId: state.selected, selObj: state.selObj, scene: state.scene, ...buffers,
+    selectedId: state.selected, selObj: state.selObj, scene: sc, time: M.time, drift: M.playing ? M.flow.drift : 0, ...buffers,
   });
+  drawStrip(sc);
+  if (state.showBalance && state.metrics && state.metrics.com) {
+    const [x, y] = state.metrics.com, r = 16 * Math.min(W, H) / 900;
+    ctx.save();
+    ctx.lineWidth = 2.5;
+    ctx.strokeStyle = '#fff';
+    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.stroke();
+    ctx.strokeStyle = '#d97757';
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([6, 4]);
+    ctx.beginPath(); ctx.moveTo(W / 2, H / 2); ctx.lineTo(x, y); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.moveTo(x - r * 1.6, y); ctx.lineTo(x + r * 1.6, y); ctx.moveTo(x, y - r * 1.6); ctx.lineTo(x, y + r * 1.6); ctx.stroke();
+    ctx.restore();
+  }
+  if (state.tab === 'measure' && !M.playing) scheduleMeasure();
   if (state.drawPts && state.drawPts.length > 1) {
     ctx.save();
     ctx.strokeStyle = '#ffd24a';
@@ -135,12 +163,13 @@ const act = {
   select(id) {
     if (state.selected !== id) state.selObj = null;
     state.selected = id;
-    showTab('inspect');
+    if (state.tab !== 'palette' && state.tab !== 'measure' && state.tab !== 'motion') showTab('inspect');
     refreshPanels();
     requestRender();
   },
   setParam(obj, spec, v) {
     obj[spec.key] = v;
+    if (!M.playing) state.frame = null;
     requestRender();
   },
   commit(rebuild) {
@@ -236,6 +265,7 @@ const act = {
     const l = findLayer(id);
     l.kind = kind;
     ensureParams(l);
+    Object.assign(l.p, KINDS[kind].defaults || {});
     dropCache(id);
     commit(true);
     requestRender();
@@ -332,6 +362,49 @@ const act = {
     requestRender();
   },
   seedGallery(id) { openGallery(id); },
+  paletteChanged(commitNow) {
+    if (!M.playing) state.frame = null;
+    requestRender();
+    if (commitNow) commit();
+  },
+  refresh() { refreshPanels(); },
+  rolesByDepth() {
+    for (const l of state.scene.layers) { l.p.role = 'auto'; l.p.step = 0; }
+    commit(true);
+    requestRender();
+  },
+  recolour() { recolour(); },
+  showBalance: () => state.showBalance,
+  setShowBalance(v) { state.showBalance = v; requestRender(); },
+  togglePlay() { M.playing ? stopPlay(false) : startPlay(); },
+  stopPlay(reset) { stopPlay(reset); },
+  addKey() {
+    const c = document.createElement('canvas');
+    c.width = 160;
+    renderThumb(c, state.scene);
+    M.keys.push({ scene: deepClone(state.scene), thumb: c.toDataURL('image/jpeg', 0.8) });
+    M.pos = M.keys.length - 1;
+    renderMotion($('#motion'), state, act);
+  },
+  setKey(i) {
+    const c = document.createElement('canvas');
+    c.width = 160;
+    renderThumb(c, state.scene);
+    M.keys[i] = { scene: deepClone(state.scene), thumb: c.toDataURL('image/jpeg', 0.8) };
+    renderMotion($('#motion'), state, act);
+  },
+  goKey(i) {
+    if (M.playing) stopPlay(false);
+    state.frame = null;
+    state.scene = normalize(deepClone(M.keys[i].scene));
+    M.pos = i;
+    commit(true);
+    requestRender();
+  },
+  motionChanged(scrub) {
+    if (scrub && !M.playing && M.keys.length >= 2) state.frame = frameScene(state.scene);
+    requestRender();
+  },
   hasClip: () => !!state.clip,
   setTool(t) { setTool(t); },
 };
@@ -481,18 +554,146 @@ canvas.addEventListener('wheel', (e) => {
   wheelTimer = setTimeout(() => commit(), 300);
 }, { passive: false });
 
+// ---- recolour: give layers roles so each role covers close to its target share ----
+function recolour() {
+  const g = state.scene.globals;
+  if (g.colorMode === 'free') return;
+  const P = g.palette;
+  const W = 240, H = Math.round((240 * canvas.height) / canvas.width), k = W / canvas.width;
+  const c = document.createElement('canvas');
+  c.width = W; c.height = H;
+  const cx = c.getContext('2d', { willReadFrequently: true });
+  cx.setTransform(k, 0, 0, k, 0, 0);
+  const layers = state.scene.layers.filter((l) => l.visible && l.kind !== 'sky' && geos.get(l.id));
+  layers.forEach((l, i) => { cx.fillStyle = `rgb(${i + 1},0,0)`; const [ox, oy] = layerOffset(state.scene, l, canvas.width, canvas.height); cx.save(); cx.translate(ox, oy); cx.fill(geos.get(l.id).union); cx.restore(); });
+  const d = cx.getImageData(0, 0, W, H).data;
+  const area = new Array(layers.length).fill(0);
+  for (let i = 0; i < d.length; i += 4) if (d[i]) area[d[i] - 1]++;
+  const list = layers.map((l, i) => ({ l, a: area[i] / (W * H) })).filter((o) => o.a > 0).sort((x, y) => y.a - x.a);
+  const got = { dominant: 0, secondary: 0, accent: 0, dark: 0, light: 0 };
+  const acc = list.length > 2 ? list[list.length - 1] : null;
+  if (acc) { acc.l.p.role = 'accent'; acc.l.p.step = 0; got.accent += acc.a; }
+  for (const o of list) {
+    if (o === acc) continue;
+    let best = 'dominant', bv = -1e9;
+    for (const r of ['dominant', 'secondary', 'dark', 'light']) {
+      const t = P.props[r];
+      if (!(t > 0)) continue;
+      const v = (t - got[r]) / t + Math.random() * 0.15;
+      if (v > bv) { bv = v; best = r; }
+    }
+    o.l.p.role = best;
+    o.l.p.step = 0;
+    got[best] += o.a;
+  }
+  for (const l of state.scene.layers) if (l.kind === 'sky') { l.p.role = 'ground'; l.p.step = 0; }
+  commit(true);
+  requestRender();
+}
+
+// ---- motion playback ----
+let lastT = 0;
+function startPlay() {
+  if (M.playing) return;
+  M.playing = true;
+  M.base = deepClone(state.scene);
+  lastT = performance.now();
+  renderMotion($('#motion'), state, act);
+  requestAnimationFrame(loop);
+}
+function loop(now) {
+  if (!M.playing) return;
+  const dt = Math.min(0.1, (now - lastT) / 1000);
+  lastT = now;
+  const going = tick(dt);
+  state.frame = frameScene(state.scene);
+  render();
+  const lab = document.querySelector('#motion .box h2 .sub');
+  if (lab) lab.textContent = `${M.time.toFixed(1)} s`;
+  if (!going) { stopPlay(false); return; }
+  requestAnimationFrame(loop);
+}
+function stopPlay(reset) {
+  M.playing = false;
+  if (reset) { M.time = 0; M.pos = 0; state.frame = null; }
+  renderMotion($('#motion'), state, act);
+  requestRender();
+}
+
+// ---- measure ----
+let mTimer = null;
+function scheduleMeasure() {
+  clearTimeout(mTimer);
+  mTimer = setTimeout(() => {
+    state.metrics = measure(canvas, state.frame || state.scene);
+    if (state.tab === 'measure') renderMeasure($('#measure'), state.metrics, state.scene, act);
+    if (state.showBalance) render();
+  }, 250);
+}
+
+// ---- mat, strip, skins ----
+const matEl = $('#mat');
+function matColour(g) {
+  if (g.mat === 'dark') return '#29272a';
+  if (g.mat === 'tint') {
+    if (g.colorMode !== 'free' && g.palette) { const [L, a, b] = lchToLab(g.palette.roles.ground); return labCss(Math.min(0.97, L * 0.6 + 0.4), a * 0.35, b * 0.35); }
+    return g.skyHorizon;
+  }
+  return '#f6f4ee';
+}
+function fitCanvas() {
+  const g = (state.frame || state.scene).globals;
+  const wrap = canvas.parentElement.parentElement;
+  const W = canvas.width, H = canvas.height;
+  const m = g.mat === 'none' ? 0 : (g.matWidth ?? 0.07) * Math.min(W, H);
+  const narrow = window.innerWidth <= 900;
+  const aw = wrap.clientWidth - 28, ah = narrow ? Infinity : wrap.clientHeight - 28;
+  const k = Math.max(0.05, Math.min(aw / (W + 2 * m), ah / (H + 2 * m)));
+  canvas.style.width = `${Math.floor(W * k)}px`;
+  canvas.style.height = `${Math.floor(H * k)}px`;
+  matEl.style.padding = `${Math.round(m * k)}px`;
+  matEl.style.background = g.mat === 'none' ? 'transparent' : matColour(g);
+}
+window.addEventListener('resize', () => requestRender());
+function drawStrip(sc) {
+  const g = sc.globals;
+  const el = $('#strip');
+  if (g.colorMode === 'free' || !g.palette) { el.hidden = true; return; }
+  el.hidden = false;
+  el.innerHTML = ROLES.map((r) => `<i style="flex:${Math.max(0.005, g.palette.props[r] || 0)};background:${lchHex(g.palette.roles[r])}" title="${r}"></i>`).join('');
+}
+function setSkin(k) {
+  if (k === 'auto') delete document.body.dataset.skin;
+  else document.body.dataset.skin = k;
+  document.querySelectorAll('#skins button').forEach((b) => b.classList.toggle('on', b.dataset.skin === k));
+  try { localStorage.setItem('shapelab.skin', k); } catch { /* storage unavailable */ }
+}
+function syncTopbar() {
+  const g = state.scene.globals;
+  document.querySelectorAll('#renderModes button').forEach((b) => b.classList.toggle('on', b.dataset.render === (g.renderStyle || 'modelled')));
+  document.querySelectorAll('#matModes button').forEach((b) => b.classList.toggle('on', b.dataset.mat === (g.mat || 'white')));
+}
+
 // ---- panels ----
+const TABS = { inspect: '#inspector', palette: '#palette', library: '#library', measure: '#measure', motion: '#motion' };
+function renderTab(tab) {
+  if (tab === 'inspect') renderInspector($('#inspector'), state, act);
+  if (tab === 'palette') renderPaletteTab($('#palette'), state, act);
+  if (tab === 'library') renderLibrary($('#library'), state, act);
+  if (tab === 'measure') { renderMeasure($('#measure'), state.metrics, state.scene, act); scheduleMeasure(); }
+  if (tab === 'motion') renderMotion($('#motion'), state, act);
+}
 function refreshPanels() {
   renderLayerPanel($('#layerPanel'), state, act);
-  renderInspector($('#inspector'), state, act);
-  if (state.tab === 'library') renderLibrary($('#library'), state, act);
+  renderTab(state.tab);
+  syncTopbar();
 }
 function showTab(tab) {
   state.tab = tab;
   document.querySelectorAll('.tabs button').forEach((b) => b.classList.toggle('on', b.dataset.tab === tab));
-  $('#inspector').hidden = tab !== 'inspect';
-  $('#library').hidden = tab !== 'library';
-  if (tab === 'library') renderLibrary($('#library'), state, act);
+  for (const [k, sel] of Object.entries(TABS)) $(sel).hidden = k !== tab;
+  renderTab(tab);
+  try { localStorage.setItem('shapelab.tab', tab); } catch { /* storage unavailable */ }
 }
 function setView(v) {
   state.view = v;
@@ -507,7 +708,22 @@ $('#ovStructure').addEventListener('change', (e) => { state.structure = e.target
 $('#btnUndo').addEventListener('click', undo);
 $('#btnRedo').addEventListener('click', redo);
 $('#btnReseed').addEventListener('click', act.reseedAll);
-$('#btnPng').addEventListener('click', () => canvas.toBlob((b) => download('shape-lab.png', b)));
+$('#btnPng').addEventListener('click', () => {
+  const g = state.scene.globals;
+  const W = canvas.width, H = canvas.height;
+  const m = g.mat === 'none' ? 0 : Math.round((g.matWidth ?? 0.07) * Math.min(W, H));
+  const c = document.createElement('canvas');
+  c.width = W + 2 * m;
+  c.height = H + 2 * m;
+  const cc = c.getContext('2d');
+  if (m) { cc.fillStyle = matColour(g); cc.fillRect(0, 0, c.width, c.height); }
+  cc.drawImage(canvas, m, m);
+  if (m) { cc.strokeStyle = 'rgba(0,0,0,0.25)'; cc.lineWidth = 1.5; cc.strokeRect(m - 0.75, m - 0.75, W + 1.5, H + 1.5); }
+  c.toBlob((b) => download('shape-lab.png', b));
+});
+document.querySelectorAll('#renderModes button').forEach((b) => b.addEventListener('click', () => { state.scene.globals.renderStyle = b.dataset.render; commit(true); requestRender(); }));
+document.querySelectorAll('#matModes button').forEach((b) => b.addEventListener('click', () => { state.scene.globals.mat = b.dataset.mat; commit(true); requestRender(); }));
+document.querySelectorAll('#skins button').forEach((b) => b.addEventListener('click', () => setSkin(b.dataset.skin)));
 $('#btnGraph').addEventListener('click', () => {
   const d = $('#graphDrawer');
   d.hidden = !d.hidden;
@@ -522,6 +738,7 @@ window.addEventListener('keydown', (e) => {
     return;
   }
   if (e.ctrlKey || e.metaKey || e.altKey) return;
+  if (e.key === ' ' && state.tab === 'motion') { e.preventDefault(); act.togglePlay(); return; }
   const toolKeys = { v: 'select', m: 'move', a: 'add', d: 'draw', e: 'erase' };
   const k = e.key.toLowerCase();
   if (toolKeys[k] && $('#graphDrawer').hidden) { setTool(toolKeys[k]); return; }
@@ -555,7 +772,11 @@ const graphEditor = createGraphEditor($('#graphEditor'), {
 // Hosted copies cannot save files, so the export button is hidden there.
 if (window.SHAPELAB_HOSTED) $('#btnPng').hidden = true;
 
+let skin = 'auto', tab0 = 'inspect';
+try { skin = localStorage.getItem('shapelab.skin') || 'auto'; tab0 = localStorage.getItem('shapelab.tab') || 'inspect'; } catch { /* storage unavailable */ }
+setSkin(skin);
 setTool('select');
+showTab(TABS[tab0] ? tab0 : 'inspect');
 refreshPanels();
 render();
 

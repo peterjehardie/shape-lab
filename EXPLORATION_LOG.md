@@ -31,3 +31,13 @@ Non-binding exploration log: a record of what was tried and why it was dropped. 
   layer and stretch it back, which is close enough below about 3 px.
 - **Default scene v1 (saturated greens, big blobs, outlines everywhere).** Read as clip art. v2 uses a muted
   golden-hour palette, many small varied foliage shapes, no default outlines, and grain, vignette and depth blur.
+
+## 2026-09-28 · merging Chroma Mat
+
+- **Free per-layer colour as the only colour source.** Pictures read as many unrelated colours. Chroma Mat's
+  six-role palette with ramps is now the default colour source; free colour stays as a mode.
+- **Torn edges at Chroma Mat's strength times two.** Came out spiky and aggressive; now matched to the original.
+- **Torn/dissolve masks on foliage layers.** They erase trees made of many small leaves; kept, with a note in the
+  panel that they suit big shapes.
+- **Land layers spanning only 3% past the frame.** Camera parallax exposed their ends; they now run 30% past each side.
+- **Keeping the paused motion frame on screen.** Hid later edits; any edit now returns to the live scene.

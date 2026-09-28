@@ -1,10 +1,25 @@
 // Layer stack and inspector panels, built from the parameter specs.
 import { h } from './util.js';
-import { BANDS, LAYER_SECTIONS, GLOBAL_SECTIONS, kindParams, bandById, valueGroupIndex } from './scene.js';
+import { BANDS, LAYER_SECTIONS, GLOBAL_SECTIONS, kindParams, bandById, valueGroupIndex, resolveRole } from './scene.js';
+import { rampOf, lchHex } from './palette.js';
 import { KINDS } from './structures.js';
 import { labCss, hexToLab } from './color.js';
 
-const openSecs = new Set(['layer', 'structure', 'scene', 'sun', 'valuegroups']);
+const openSecs = new Set(['layer', 'structure', 'scene', 'sun', 'valuegroups', 'value']);
+
+// Looks from Chroma Mat: edge, fade, mask and grain settings in one click.
+export const LOOKS = [
+  ['Crisp cut', { blur: 0, mask: 'none', texture: 0, opacity: 1, opGrade: 0 }],
+  ['Torn paper', { mask: 'torn', maskClip: 0.5, maskSharp: 0.9, maskDepth: 1.6, maskReach: 6, maskScale: 2, texture: 0.25, textureHue: 0, edgeStyle: 'rough', shapeNoise: 0.3 }],
+  ['Washed away', { blur: 3, opGrade: 0.85, opAngle: 0 }],
+  ['Ghost fade', { blur: 1.5, opGrade: 1, opAngle: 90, opacity: 0.85 }],
+  ['Dissolving', { mask: 'dissolve', maskClip: 0.5, maskSharp: 0.8, maskScale: 1.5 }],
+  ['Film speckle', { texture: 0.9, textureHue: 0.2, textureScale: 0.4, textureBlend: 'overlay' }],
+  ['Chalky', { texture: 0.7, textureScale: 0.25, textureHue: 0, mask: 'torn', maskClip: 0.5, maskSharp: 0.55, maskDepth: 1, maskReach: 3, maskScale: 3 }],
+  ['Watercolour bloom', { blur: 1.2, texture: 0.6, textureHue: 0.35, textureScale: 1.6, mask: 'torn', maskClip: 0.45, maskSharp: 0.35, maskDepth: 1.1, maskReach: 12, maskScale: 1.2 }],
+  ['Veiny marble', { texture: 0.8, textureHue: 0.1, textureScale: 1.5, textureBlend: 'soft-light' }],
+  ['Holes', { mask: 'dissolve', maskClip: 0.38, maskSharp: 1, maskScale: 1.4 }],
+];
 
 const fmt = (v, step) => {
   if (typeof v !== 'number') return v;
@@ -76,6 +91,15 @@ export function control(spec, obj, api, options) {
   return h('div');
 }
 
+function swatchOf(scene, l) {
+  const g = scene.globals;
+  if (g.colorMode !== 'free' && g.palette) {
+    const [r, st] = resolveRole(l);
+    return lchHex(rampOf(g.palette, r)[Math.max(0, Math.min(4, Math.round(2 + st)))]);
+  }
+  return l.kind === 'sky' ? g.skyTop : l.p.color;
+}
+
 // ---------------------------------------------------------------------------------
 export function renderLayerPanel(el, state, act) {
   const scroll = el.scrollTop;
@@ -90,7 +114,7 @@ export function renderLayerPanel(el, state, act) {
       sec.append(
         h('div', { class: `layer-row${state.selected === l.id ? ' sel' : ''}${l.visible ? '' : ' hidden'}`, onclick: () => act.select(l.id) },
           h('button', { class: 'small ghost eye', title: l.visible ? 'Hide' : 'Show', onclick: stop(() => act.toggleVisible(l.id)) }, l.visible ? '◉' : '○'),
-          h('span', { class: 'swatch', style: { background: l.kind === 'sky' ? state.scene.globals.skyTop : l.p.color } }),
+          h('span', { class: 'swatch', style: { background: swatchOf(state.scene, l) } }),
           h('span', { class: 'name', title: `${l.name} (${KINDS[l.kind].label})` }, l.name),
           l.locked ? h('span', { class: 'kind', title: 'Seed locked: Reseed all skips this layer' }, '\u{1F512}\uFE0E') : null,
           h('span', { class: 'acts' },
@@ -144,11 +168,11 @@ function renderLayer(el, state, act, layer) {
       h('button', { class: 'small', disabled: !act.hasClip(), onclick: () => act.pasteLook(layer.id) }, 'Paste look'),
       h('button', { class: 'small', onclick: () => act.toggleLock(layer.id) }, layer.locked ? 'Unlock seed' : 'Lock seed')),
   ]));
-  const kp = kindParams(layer.kind).filter((s) => !s.show || s.show(layer));
+  const kp = kindParams(layer.kind).filter((s) => !s.show || s.show(layer, scene));
   el.append(section('structure', `Structure · ${KINDS[layer.kind].label}`, kp.map((s) => control(s, layer.p, api)), null, () => act.randomize(layer.p, kindParams(layer.kind))));
   for (const sec of LAYER_SECTIONS) {
     if (sec.hide && sec.hide(layer)) continue;
-    const rows = sec.params.filter((s) => !s.show || s.show(layer)).map((s) => {
+    const rows = sec.params.filter((s) => !s.show || s.show(layer, scene)).map((s) => {
       if (s.dynamic === 'valueGroups') {
         const auto = scene.globals.valueGroups[valueGroupIndex(scene, { ...layer, p: { ...layer.p, valueGroup: 'auto' } })];
         const opts = [['auto', `Auto by band (${auto ? auto.name : '?'})`], ...scene.globals.valueGroups.map((g, i) => [String(i), `${i + 1}. ${g.name}`])];
@@ -166,6 +190,10 @@ function renderLayer(el, state, act, layer) {
           h('button', { class: 'small', disabled: !nDr, onclick: () => act.resetEdits(layer.id, 'drawn') }, 'Clear drawn'),
           h('button', { class: 'small', onclick: () => act.resetEdits(layer.id, 'offset') }, 'Reset shift')));
     }
+    if (sec.id === 'look') {
+      rows.unshift(h('div', { class: 'chips' }, ...LOOKS.map(([n, look]) => h('button', { class: 'chip', onclick: () => act.apply(() => Object.assign(layer.p, look)) }, n))),
+        h('p', { class: 'note' }, 'Torn edges and holes work best on big shapes; on trees made of small leaves they eat the foliage.'));
+    }
     const dice = ['value', 'edits'].includes(sec.id) ? null : () => act.randomize(layer.p, sec.params);
     el.append(section(sec.id, sec.title, rows, sec.note, dice));
   }
@@ -175,7 +203,7 @@ function renderGlobals(el, state, act) {
   const g = state.scene.globals;
   const api = { set: (spec, v) => act.setParam(g, spec, v), commit: (spec) => act.commit(spec.rebuild) };
   for (const sec of GLOBAL_SECTIONS) {
-    const rows = sec.params.map((s) => control(s, g, api));
+    const rows = sec.params.filter((s) => !s.show || s.show(g)).map((s) => control(s, g, api));
     if (sec.id === 'scene') rows.push(h('div', { class: 'btnrow' }, h('button', { onclick: act.reseedAll }, 'Reseed every layer'), h('button', { onclick: act.resetGraph }, 'Reset node graph')));
     const dice = ['sun', 'finish', 'sky'].includes(sec.id) ? () => act.randomize(g, sec.params.filter((q) => q.type !== 'color')) : null;
     el.append(section(sec.id, sec.title, rows, sec.note, dice));

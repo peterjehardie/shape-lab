@@ -1,6 +1,8 @@
 // Library: scene presets, saved scenes, a catalogue of techniques and ideas, and notes.
 import { h, deepClone } from './util.js';
 import { defaultScene, makeLayer, BANDS } from './scene.js';
+import { palByName, clonePal, rampOf, ROLES } from './palette.js';
+import { Rng } from './rng.js';
 import { KINDS } from './structures.js';
 
 const store = {
@@ -21,7 +23,7 @@ export const PRESETS = [
     id: 'backlit', label: 'Backlit evening', text: 'Sun ahead of the viewer, low and warm. Shapes go to silhouette with glowing edges and light shafts.',
     make: () => {
       const s = defaultScene();
-      Object.assign(s.globals, { sunAngle: 98, sunFront: -0.75, sunHue: 58, sunWarm: 0.85, shadowHue: 285, skyTop: '#6776b3', skyHorizon: '#f4b07c', hazeColor: '#c7a3b0', haze: 0.85, rays: 0.55, warmth: 0.25 });
+      Object.assign(s.globals, { sunAngle: 98, sunFront: -0.75, sunHue: 58, sunWarm: 0.85, shadowHue: 285, skyTop: '#6776b3', skyHorizon: '#f4b07c', hazeColor: '#c7a3b0', haze: 0.85, rays: 0.55, warmth: 0.25, palette: clonePal(palByName('Sunset rooftop')) });
       s.globals.valueGroups = [
         { name: 'Sky', value: 0.82, spread: 0.08 },
         { name: 'Far', value: 0.6, spread: 0.05 },
@@ -51,7 +53,7 @@ export const PRESETS = [
         makeLayer('close', 'trees', 'Pines', { form: 'conifer', count: 4, x0: 0.02, x1: 0.28, baseY: 0.98, height: 0.7, trunk: 7, foliage: 30, density: 6, vocab: 'spiky', rotJitter: 0.1, color: '#2f4f3c', valueJitter: 0.04, hueJitter: 8, jitterBy: 'cluster', volume: 0.7, clone: 0.4, cloneMode: 'cast', castLen: 0.5, contact: 0.5 }),
         makeLayer('veryclose', 'grass', 'Reeds', { count: 26, x0: 0.25, x1: 1, yTop: 0.96, bladeHeight: 120, blades: 5, bladeWidth: 4, curl: 0.2, color: '#6e7a42', hueJitter: 10 }),
       );
-      Object.assign(s.globals, { horizonY: 0.64 });
+      Object.assign(s.globals, { horizonY: 0.64, colorMode: 'free' });
       return s;
     },
   },
@@ -71,7 +73,7 @@ export const PRESETS = [
         makeLayer('midfg', 'hills', 'Low hills', { baseY: 0.82, height: 0.08, color: '#58745c', scatter: 60, vocab: 'mix-foliage', scatterSize: 9 }),
         makeLayer('close', 'trees', 'Pines', { form: 'conifer', count: 5, x0: 0.62, x1: 0.95, baseY: 0.97, height: 0.5, trunk: 5, foliage: 26, density: 4, vocab: 'spiky', color: '#35523d', rotJitter: 0.1, valueJitter: 0.04 }),
       ];
-      Object.assign(s.globals, { haze: 1, hazeCurve: 0.8, horizonY: 0.55, skyTop: '#9fb3cf', skyHorizon: '#e8e4dc', hazeColor: '#c4cedd', sunFront: 0.5, dof: 0.5, focus: 0.9 });
+      Object.assign(s.globals, { haze: 1, hazeCurve: 0.8, horizonY: 0.55, skyTop: '#9fb3cf', skyHorizon: '#e8e4dc', hazeColor: '#c4cedd', sunFront: 0.5, dof: 0.5, focus: 0.9, colorMode: 'free' });
       s.globals.valueGroups = [
         { name: 'Sky', value: 0.92, spread: 0.03 },
         { name: 'Ridge far', value: 0.82, spread: 0.03 },
@@ -91,7 +93,7 @@ export const PRESETS = [
     id: 'poster', label: 'Graphic poster', text: 'Two-step shading, ink outlines heavier on the shadow side, three value groups, hatching in the shadows.',
     make: () => {
       const s = defaultScene();
-      Object.assign(s.globals, { lightSteps: '2', grain: 0.15, dof: 0, vignette: 0.1 });
+      Object.assign(s.globals, { lightSteps: '2', grain: 0.15, dof: 0, vignette: 0.1, colorMode: 'free' });
       s.globals.valueGroups = [
         { name: 'Light', value: 0.88, spread: 0.07 },
         { name: 'Mid', value: 0.6, spread: 0.1 },
@@ -113,10 +115,15 @@ export const PRESETS = [
         makeLayer('close', 'trees', 'Joshua-ish', { form: 'lsystem', lsRule: 'sparse', levels: 3, count: 2, x0: 0.1, x1: 0.8, baseY: 0.95, height: 0.35, trunk: 9, foliage: 26, density: 8, vocab: 'spiky', color: '#6c7b44', clone: 0.5, cloneMode: 'cast', castLen: 0.4, contact: 0.5 }),
         makeLayer('veryclose', 'clusters', 'Scrub', { count: 10, yTop: 0.95, yBottom: 1.02, clusterSize: 40, vocab: 'spiky', color: '#7e7a4a', ground: true, groundDetail: 120 }),
       ];
-      Object.assign(s.globals, { sunAngle: 110, sunFront: 0.4, sunWarm: 0.5, skyTop: '#5b8fd0', skyHorizon: '#f2dcc2', hazeColor: '#d8c3b5', haze: 0.6 });
+      Object.assign(s.globals, { sunAngle: 110, sunFront: 0.4, sunWarm: 0.5, skyTop: '#5b8fd0', skyHorizon: '#f2dcc2', hazeColor: '#d8c3b5', haze: 0.6, palette: clonePal(palByName('Desert noon')) });
       return s;
     },
   },
+  ...[['day', 'Clear day', 'Golden hour'], ['back', 'Backlit silhouette', 'Sunset rooftop'], ['fog', 'Fog', 'Fog'], ['night', 'Night', 'Moonlit night']].map(([v, n, pal]) => ({
+    id: `abstract-${v}`, label: `Abstract depth: ${n.toLowerCase()}`,
+    text: 'Chroma Mat\u2019s auto mode inside the bands: far forms, a ground, middle forms, dark cropped near forms and one accent on a thirds point. Flat rendering on a white mat.',
+    make: () => abstractDepth(v, pal),
+  })),
   {
     id: 'blank', label: 'One layer per band', text: 'A bare starting point: sky plus one default layer in each band.',
     make: () => {
@@ -126,6 +133,48 @@ export const PRESETS = [
     },
   },
 ];
+
+// Chroma Mat's depth builder: each layer takes the palette ramp step closest to a target
+// lightness for its depth (sky light, far forms lighter, near forms dark).
+const DEPTH = {
+  day: { sky: 0.9, bg: 0.74, gr: 0.58, mg: 0.48, fg: 0.22, accL: 0.62, haze: 0.6, sunFront: 0.3 },
+  back: { sky: 0.93, bg: 0.68, gr: 0.4, mg: 0.34, fg: 0.1, accL: 0.8, haze: 0.55, sunFront: -0.7 },
+  fog: { sky: 0.87, bg: 0.8, gr: 0.7, mg: 0.64, fg: 0.36, accL: 0.6, haze: 0.9, sunFront: 0.5 },
+  night: { sky: 0.2, bg: 0.3, gr: 0.17, mg: 0.2, fg: 0.07, accL: 0.93, haze: 0.45, sunFront: 0.2 },
+};
+function pickTone(P, target, cPen, R, avoid = []) {
+  let best = null, bv = 1e9;
+  for (const r of ROLES) {
+    if (r === 'accent' || avoid.includes(r)) continue;
+    rampOf(P, r).forEach((c, i) => { const v = Math.abs(c[0] - target) + cPen * c[1] + R.next() * 0.035; if (v < bv) { bv = v; best = { role: r, step: i - 2 }; } });
+  }
+  return best;
+}
+function abstractDepth(v, palName) {
+  const V = DEPTH[v];
+  const s = defaultScene();
+  const P = clonePal(palByName(palName));
+  const R = new Rng(Math.floor(Math.random() * 1e9));
+  const hz = 0.46 + R.next() * 0.22;
+  const abs = (band, name, o) => makeLayer(band, 'abstract', name, { ...o });
+  const tone = (t, pen) => pickTone(P, t, pen, R);
+  const sky = tone(V.sky, 1.2);
+  s.layers = [
+    makeLayer('sky', 'sky', 'Sky', { ...sky, glow: v === 'back' ? 0.8 : 0 }),
+    abs('distant', 'Far forms', { ...tone(V.bg, 1.5), count: 2 + Math.floor(R.next() * 2), placement: 'horizon', horizonY: hz - 0.05, spreadY: 0.03, sizeMin: 0.3, sizeMax: 0.5, aspectVar: 1.2, vocab: 'band', edgeStyle: 'rough', shapeNoise: 0.15 }),
+    makeLayer('middle', 'hills', 'Ground', { ...tone(V.gr, 0.8), baseY: hz, height: 0.012, bumps: 2, scatter: 0, groundDetail: 0 }),
+    abs('middle', 'Middle forms', { ...tone(V.mg, 0.6), count: 3 + Math.floor(R.next() * 2), placement: 'horizon', horizonY: hz + 0.04, spreadY: 0.05, sizeMin: 0.05, sizeMax: 0.12, aspectVar: 0.6 }),
+    abs('close', 'Near forms', { ...tone(V.fg, 0.3), count: 2 + Math.floor(R.next() * 2), placement: 'edge', sizeMin: 0.35, sizeMax: 0.6, shapeNoise: 0.4 }),
+    abs('veryclose', 'Focal accent', { role: 'accent', step: V.accL > 0.7 ? 2 : 0, count: 1, placement: 'thirds', sizeMin: 0.03, sizeMax: 0.06, vocab: 'superellipse', shapeNoise: 0 }),
+  ];
+  if (v === 'night') s.layers.splice(1, 0, abs('sky', 'Moon', { role: 'light', step: 0, count: 1, placement: 'thirds', sizeMin: 0.04, sizeMax: 0.05, vocab: 'circle', shapeNoise: 0 }));
+  for (const l of s.layers) l.p.distort = 0;
+  Object.assign(s.globals, {
+    palette: P, colorMode: 'palette', renderStyle: 'flat', mat: 'white', matWidth: 0.09, horizonY: hz, haze: V.haze, sunFront: V.sunFront,
+    grain: 0.25, vignette: 0, dof: 0, saturation: 1, warmth: 0, nearTintAmt: 0, hazeRole: sky.role, aspect: '3:2',
+  });
+  return s;
+}
 
 // Single layers that drop into the current scene.
 export const LAYER_PRESETS = [
@@ -144,6 +193,9 @@ export const LAYER_PRESETS = [
   { label: 'Snowy peaks', band: 'distant', kind: 'ridge', p: { baseY: 0.56, height: 0.26, sharp: 0.8, snow: 0.5, color: '#8f9cc3' } },
   { label: 'Mesas', band: 'distant', kind: 'ridge', p: { baseY: 0.62, height: 0.18, mesa: 0.8, sharp: 0.2, color: '#b98a6c' } },
   { label: 'Cirrus wisps', band: 'sky', kind: 'clouds', p: { cloudType: 'cirrus', count: 5, yTop: 0.05, yBottom: 0.25, cloudSize: 60, stretch: 4, puffs: 10, color: '#f6f2ec', valueNudge: 0.05 } },
+  { label: 'Abstract scatter', band: 'midfg', kind: 'abstract', p: { roleMix: true, count: 9 } },
+  { label: 'Abstract horizon band', band: 'distant', kind: 'abstract', p: { placement: 'horizon', count: 4, sizeMin: 0.2, sizeMax: 0.45, aspectVar: 1.2, vocab: 'band' } },
+  { label: 'Cropped dark foreground', band: 'veryclose', kind: 'abstract', p: { role: 'dark', placement: 'edge', count: 3, sizeMin: 0.35, sizeMax: 0.6, shapeNoise: 0.4 } },
   { label: 'Framing branch', band: 'veryclose', kind: 'branch', p: { side: 'right', anchor: 0.08, reach: 0.45, color: '#2f4a26', vocab: 'leaf', valueNudge: -0.12, trunkColor: '#3a2e26', clone: 0.5, cloneOffset: 16, cloneSoft: 6, rotJitter: 0.25, hueJitter: 8 } },
 ];
 
@@ -193,6 +245,18 @@ export const IDEAS = [
   { cat: 'Fake 2D light', status: 'built', title: 'Separation halo', text: '“Separation halo”: a soft light glow behind a layer that pulls it away from what is behind it.' },
   { cat: 'Fake 2D light', status: 'built', title: 'Light shafts', text: 'Scene setting “Light shafts”: the visible bright sky is smeared outward from the sun; near shapes that block it cut the shafts.', tryLabel: 'Add light shafts', try: (s) => { s.globals.rays = 0.6; } },
 
+  { cat: 'Chroma Mat', status: 'built', title: 'Palette roles and ramps', text: 'Six roles (ground, dominant, secondary, accent, dark, light) in OKLCH, each with a target share and a five-step ramp that drifts toward the light hue in light and the shadow hue in shadow. In palette mode every layer takes a role and a ramp step.' },
+  { cat: 'Chroma Mat', status: 'built', title: 'Palette library, generator, checks, from image', text: '87 palettes for lighting situations and animation looks; a generator from base hue, scheme, value key, chroma and temperature (locked roles kept); rule-of-thumb checks; a palette from a picture by clustering its colours.' },
+  { cat: 'Chroma Mat', status: 'built', title: 'Recolour to target shares', text: 'Measures how much of the frame each layer covers and hands out roles so each role lands near its target share. Abstract layers can mix roles shape by shape.' },
+  { cat: 'Chroma Mat', status: 'built', title: 'Flat, form light and cut paper', text: 'Rendering styles next to the full modelling: one colour per shape, three ramp steps across each shape, or flat shapes throwing small paper shadows.' },
+  { cat: 'Chroma Mat', status: 'built', title: 'Abstract shapes and torn edges', text: 'Superellipses, star polygons, crescents, wedges, arc bands and wavy bands, with torn (rough) edges; an abstract scatter layer with Chroma Mat placements (inside, cropped on the edges, loose grid, horizon, thirds).' },
+  { cat: 'Chroma Mat', status: 'built', title: 'Abstract depth builder', text: 'Presets that build far forms, a ground, middle forms, dark cropped near forms and one accent on a thirds point, each coloured from the palette step nearest a target lightness (clear day, backlit, fog, night).' },
+  { cat: 'Chroma Mat', status: 'built', title: 'Edges and texture per layer', text: 'Soft edges, dissolve holes, torn edges from noise plus a blurred outline, grain inside the shapes with hue jitter and blend modes, graded fades; ten one-click looks (torn paper, watercolour bloom, chalky, holes\u2026).' },
+  { cat: 'Chroma Mat', status: 'built', title: 'Perspective and lens warps', text: 'Graph nodes for 1-point perspective, fisheye, bulge, shear, zigzag, shatter and heat shimmer.' },
+  { cat: 'Chroma Mat', status: 'built', title: 'Mat, formats and measurement', text: 'White, tinted or dark mat around the picture (also in the export); 3:2, 4:5 and 2:3 formats; role areas vs targets, value histogram, hue wheel, warm/cool balance and the colour-mass centre.' },
+  { cat: 'Chroma Mat', status: 'built', title: 'Motion', text: 'Whole-scene keyframes blended over time, camera parallax by depth, drifting sky layers, light orbit, hue drift and a Time node for animated graphs.' },
+  { cat: 'Chroma Mat', status: 'idea', title: 'Colour music', text: 'Chroma Mat turned the palette into chords and the motion into a melody. Not carried over yet.' },
+  { cat: 'Chroma Mat', status: 'idea', title: 'On-canvas handles for warps', text: 'Chroma Mat drew draggable handles for vanishing points, centres and angles on the picture. Here those are numbers in the graph nodes for now.' },
   { cat: 'Workflow', status: 'built', title: 'Canvas tools', text: 'Select (drag objects, scroll to resize, Delete hides, R reseeds one object), Move layer, Add (click to place new trees, clouds, clusters, tufts), Draw (drag an outline that fills with shapes), Erase. Keys V M A D E.' },
   { cat: 'Workflow', status: 'built', title: 'Dice per section', text: 'The die on each settings section sets random values for that section only. Undo reverts.' },
   { cat: 'Workflow', status: 'built', title: 'Copy and paste a look', text: 'Copy one layer\u2019s colour, variety, light, fake-light and line settings onto another.' },

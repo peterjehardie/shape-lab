@@ -4,7 +4,7 @@
 import { KINDS } from './structures.js';
 import { Rng, noiseFor } from './rng.js';
 import { hashInts, hashStr, hash01 } from './util.js';
-import { makeShape, wobble, measureRoundness, VOCAB_SETS, densify, bbox, centroid, signedArea, ribbon } from './geom.js';
+import { makeShape, wobble, roughen, measureRoundness, VOCAB_SETS, densify, bbox, centroid, signedArea, ribbon, resample } from './geom.js';
 import { LAYER_SECTIONS, kindParams, layerDepth } from './scene.js';
 
 const DISTORT_KEYS = ['distort', 'layerNoise', 'layerNoiseScale', 'graphValue', 'graphSize', 'graphDensity', 'offX', 'offY'];
@@ -58,11 +58,18 @@ function generate(layer, scene, W, H) {
     shape(x, y, size, o = {}) {
       const t = o.type || shapeRng.pick(vocab);
       const s = Math.max(0.6 * u, o.fixed ? size : size * p.shapeSize * (1 + p.sizeJitter * shapeRng.signed() * 0.8));
-      const a = (o.angle || 0) + (o.fixed ? 0 : p.rotJitter * shapeRng.signed() * Math.PI);
+      const a = (o.angle || 0) + (o.fixed || o.keepAngle ? 0 : p.rotJitter * shapeRng.signed() * Math.PI);
       const shp = makeShape(t, x, y, s, a, shapeRng, o);
       const round = measureRoundness(shp.poly);
-      if (p.shapeNoise > 0 && !o.noWobble) wobble(shp.poly, x, y, s, p.shapeNoise, p.shapeNoiseScale, noise, shapeRng.range(0, 500));
-      items.push({ poly: shp.poly, corners: shp.corners, round, ob: o.ob || 0, cl: o.cl || 0, col: o.col, lOff: o.lOff || 0, kind: 'shape', detail: !!o.detail, rid: shapeRng.next() });
+      if (p.shapeNoise > 0 && !o.noWobble) {
+        if (p.edgeStyle === 'rough') {
+          // rough edges need even, dense points to tear nicely
+          shp.poly = resample(shp.poly, 160);
+          shp.corners = null;
+          roughen(shp.poly, x, y, p.shapeNoise * 2, p.shapeNoiseScale, shapeRng);
+        } else wobble(shp.poly, x, y, s, p.shapeNoise, p.shapeNoiseScale, noise, shapeRng.range(0, 500));
+      }
+      items.push({ poly: shp.poly, corners: shp.corners, round, ob: o.ob || 0, cl: o.cl || 0, col: o.col, lOff: o.lOff || 0, kind: 'shape', detail: !!o.detail, rid: shapeRng.next(), area: s * s });
     },
     mass(poly, o = {}) {
       items.push({ poly, kind: 'mass', ob: o.ob || 0, cl: o.cl || 0, facets: o.facets || null, fade: o.fade || null, vol: o.vol || null, n3: o.n3 || null, round: o.round ?? 0, fixedRound: true, ground: !!o.ground, grad: o.grad || null, col: o.col, lOff: o.lOff || 0, rid: 0 });
@@ -141,7 +148,7 @@ function displace(gen, layer, scene, graph, W, H, depth) {
   const useGraph = fn && fn.uses.move && p.distort !== 0;
   const useNoise = p.layerNoise > 0;
   const nz = noiseFor(hashInts(layer.seed, 31));
-  const ctx = { x: 0, y: 0, depth, aspect: W / H };
+  const ctx = { x: 0, y: 0, depth, aspect: W / H, time: (graph && graph.time) || 0 };
   const sc = p.layerNoiseScale;
   const D = (pt) => {
     let dx = 0, dy = 0;
@@ -210,7 +217,8 @@ export function buildGeometry(layer, scene, graph, gHash, W, H) {
     genCache.set(ck, g);
   }
   const depth = layerDepth(scene, layer);
-  const dk = `${gk}|${gHash}|${DISTORT_KEYS.map((k) => layer.p[k]).join(',')}|${JSON.stringify(layer.p.edits || {})}|${depth.toFixed(4)}`;
+  const tk = graph && graph.fn && graph.fn.uses.time ? graph.time : 0;
+  const dk = `${gk}|${gHash}|${tk}|${DISTORT_KEYS.map((k) => layer.p[k]).join(',')}|${JSON.stringify(layer.p.edits || {})}|${depth.toFixed(4)}`;
   let d = distCache.get(ck);
   if (!d || d.key !== dk) {
     d = { key: dk, geo: displace(g.gen, layer, scene, graph, W, H, depth) };

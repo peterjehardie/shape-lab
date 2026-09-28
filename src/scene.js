@@ -3,6 +3,7 @@ import { KINDS } from './structures.js';
 import { VOCAB_OPTIONS } from './geom.js';
 import { newId, lerp } from './util.js';
 import { defaultGraph } from './graph.js';
+import { ROLES, RNAME, clonePal, palByName } from './palette.js';
 
 export const BANDS = [
   { id: 'sky', label: 'Sky', range: [0, 0.08], kind: 'clouds', frac: 0 },
@@ -20,6 +21,9 @@ const B = (key, label, def, extra = {}) => ({ key, label, type: 'bool', def, ...
 const C = (key, label, def, extra = {}) => ({ key, label, type: 'color', def, ...extra });
 
 const hasTrunk = (l) => ['trees', 'branch', 'rows'].includes(l.kind);
+const pal = (sc) => !sc || sc.globals.colorMode !== 'free';
+const free = (sc) => sc && sc.globals.colorMode === 'free';
+const ROLE_OPTS = ROLES.map((r) => [r, RNAME[r]]);
 const noForm = (l) => l.kind === 'sky' || l.kind === 'water';
 
 // Settings every layer has, grouped the way the inspector shows them.
@@ -32,6 +36,7 @@ export const LAYER_SECTIONS = [
       R('shapeSize', 'Size', 0.2, 3, 0.01, 1, { geo: true }),
       R('sizeJitter', 'Size variety', 0, 1, 0.01, 0.4, { geo: true }),
       R('rotJitter', 'Rotation variety', 0, 1, 0.01, 1, { geo: true }),
+      S('edgeStyle', 'Edge noise kind', [['noise', 'Smooth wobble'], ['rough', 'Torn (rough)']], 'noise', { geo: true }),
       R('shapeNoise', 'Edge noise (per shape)', 0, 1, 0.01, 0.15, { geo: true }),
       R('shapeNoiseScale', 'Edge noise scale', 0.2, 6, 0.01, 1.5, { geo: true }),
     ],
@@ -46,17 +51,21 @@ export const LAYER_SECTIONS = [
     ],
   },
   {
-    id: 'value', title: 'Value & colour', note: 'Colour sets hue only. Lightness comes from the value group.',
+    id: 'value', title: 'Colour',
     params: [
-      C('color', 'Colour', '#6f8f5a'),
-      C('trunkColor', 'Trunk colour', '#5a4636', { show: hasTrunk }),
-      R('trunkValue', 'Trunk value shift', -0.4, 0.4, 0.005, -0.08, { show: hasTrunk }),
-      C('accentColor', 'Accent colour (flowers, banks)', '#f2d65c', { show: (l) => l.kind === 'grass' || l.kind === 'path' }),
-      R('accentValue', 'Accent value shift', -0.5, 0.5, 0.005, 0.25, { show: (l) => l.kind === 'grass' || l.kind === 'path' }),
-      R('snowValue', 'Snow value shift', -0.3, 0.3, 0.005, 0, { show: (l) => l.kind === 'ridge' }),
-      S('valueGroup', 'Value group', [], 'auto', { dynamic: 'valueGroups' }),
+      S('role', 'Palette role', [['auto', 'Auto (by depth band)'], ...ROLE_OPTS], 'auto', { show: (l, sc) => pal(sc) }),
+      R('step', 'Ramp step (shadow \u2192 light)', -2, 2, 0.25, 0, { show: (l, sc) => pal(sc) }),
+      S('trunkRole', 'Trunk / post role', ROLE_OPTS, 'dark', { show: (l, sc) => pal(sc) && hasTrunk(l) }),
+      B('roleMix', 'Mix roles across shapes (balance areas)', false, { show: (l, sc) => pal(sc) && l.kind !== 'sky' }),
+      C('color', 'Colour (hue)', '#6f8f5a', { show: (l, sc) => free(sc) }),
+      C('trunkColor', 'Trunk colour', '#5a4636', { show: (l, sc) => free(sc) && hasTrunk(l) }),
+      R('trunkValue', 'Trunk value shift', -0.4, 0.4, 0.005, -0.08, { show: (l, sc) => free(sc) && hasTrunk(l) }),
+      C('accentColor', 'Accent colour (flowers, banks)', '#f2d65c', { show: (l, sc) => free(sc) && (l.kind === 'grass' || l.kind === 'path') }),
+      R('accentValue', 'Accent value shift', -0.5, 0.5, 0.005, 0.25, { show: (l, sc) => free(sc) && (l.kind === 'grass' || l.kind === 'path') }),
+      R('snowValue', 'Snow value shift', -0.3, 0.3, 0.005, 0, { show: (l, sc) => free(sc) && (l.kind === 'ridge') }),
+      S('valueGroup', 'Value group', [], 'auto', { dynamic: 'valueGroups', show: (l, sc) => free(sc) }),
       R('valueNudge', 'Value nudge', -0.4, 0.4, 0.005, 0),
-      R('chroma', 'Colour strength', 0, 2, 0.01, 1),
+      R('chroma', 'Colour strength', 0, 2, 0.01, 1, { show: (l, sc) => free(sc) }),
       R('haze', 'Haze amount', 0, 2, 0.01, 1),
     ],
   },
@@ -95,6 +104,27 @@ export const LAYER_SECTIONS = [
     ],
   },
   {
+    id: 'look', title: 'Edges & texture', note: 'Whole-layer treatments from Chroma Mat: soft edges, torn or dissolving edges, grain inside the shapes, fades.',
+    hide: (l) => l.kind === 'sky' || l.kind === 'water',
+    params: [
+      R('blur', 'Edge softness (blur)', 0, 12, 0.1, 0),
+      R('opacity', 'Opacity', 0, 1, 0.01, 1),
+      R('opGrade', 'Fade across the layer', 0, 1, 0.01, 0),
+      R('opAngle', 'Fade toward (degrees)', -180, 180, 1, 90, { show: (l) => l.p.opGrade > 0 }),
+      S('mask', 'Noise mask', [['none', 'Off'], ['dissolve', 'Dissolve (holes)'], ['torn', 'Torn edges']], 'none', { rebuild: true }),
+      R('maskClip', 'Clip level', 0, 1, 0.005, 0.45, { show: (l) => l.p.mask !== 'none' }),
+      R('maskSharp', 'Edge sharpness', 0, 1, 0.01, 0.75, { show: (l) => l.p.mask !== 'none' }),
+      R('maskScale', 'Noise scale', 0.1, 6, 0.01, 1.2, { show: (l) => l.p.mask !== 'none' }),
+      R('maskStretch', 'Noise stretch', 0.2, 6, 0.01, 1, { show: (l) => l.p.mask !== 'none' }),
+      R('maskDepth', 'Tear depth', 0, 3, 0.01, 1.2, { show: (l) => l.p.mask === 'torn' }),
+      R('maskReach', 'Tear reach (px)', 1, 40, 0.5, 8, { show: (l) => l.p.mask === 'torn' }),
+      R('texture', 'Grain inside shapes', 0, 1.6, 0.01, 0),
+      R('textureScale', 'Grain size', 0.1, 4, 0.01, 1, { show: (l) => l.p.texture > 0 }),
+      R('textureHue', 'Grain hue jitter', 0, 2, 0.01, 0.2, { show: (l) => l.p.texture > 0 }),
+      S('textureBlend', 'Grain blend', [['soft-light', 'Soft light'], ['overlay', 'Overlay'], ['multiply', 'Multiply'], ['screen', 'Screen'], ['luminosity', 'Luminosity']], 'soft-light', { show: (l) => l.p.texture > 0 }),
+    ],
+  },
+  {
     id: 'lines', title: 'Outline & line quality', hide: noForm,
     params: [
       S('lineMode', 'Outline around', [['none', 'Nothing'], ['shape', 'Each shape'], ['cluster', 'Each cluster'], ['object', 'Each object'], ['layer', 'Whole layer']], 'none', { rebuild: true }),
@@ -130,7 +160,7 @@ export const LAYER_SECTIONS = [
     params: [
       R('offX', 'Shift sideways', -0.5, 0.5, 0.001, 0, { geo: true }),
       R('offY', 'Shift up/down', -0.5, 0.5, 0.001, 0, { geo: true }),
-      R('blur', 'Extra blur', 0, 12, 0.1, 0),
+      R('parallax', 'Camera parallax', 0, 2, 0.01, 1),
     ],
   },
 ];
@@ -140,7 +170,11 @@ export const GLOBAL_SECTIONS = [
     id: 'scene', title: 'Scene',
     params: [
       R('seed', 'Scene seed', 0, 9999, 1, 7),
-      S('aspect', 'Frame', [['16:9', '16 : 9'], ['2:1', '2 : 1 panorama'], ['4:3', '4 : 3'], ['1:1', 'Square'], ['3:4', '3 : 4 portrait']], '16:9'),
+      S('aspect', 'Format', [['16:9', '16 : 9'], ['2:1', '2 : 1 panorama'], ['3:2', '3 : 2'], ['4:3', '4 : 3'], ['1:1', 'Square'], ['4:5', '4 : 5 portrait'], ['3:4', '3 : 4 portrait'], ['2:3', '2 : 3 portrait']], '16:9'),
+      S('renderStyle', 'Rendering', [['modelled', 'Modelled (full light)'], ['form', 'Form light (3 steps)'], ['flat', 'Flat'], ['paper', 'Cut paper']], 'modelled'),
+      R('paperShadow', 'Paper shadow', 0, 1, 0.01, 0.35, { show: (g) => g.renderStyle === 'paper' }),
+      S('mat', 'Mat', [['none', 'No mat'], ['white', 'White mat'], ['tint', 'Tinted mat'], ['dark', 'Dark mat']], 'white'),
+      R('matWidth', 'Mat width', 0, 0.4, 0.005, 0.07, { show: (g) => g.mat !== 'none' }),
     ],
   },
   {
@@ -203,7 +237,7 @@ export function defaultValueGroups() {
 }
 
 export function defaultGlobals() {
-  const g = { valueGroups: defaultValueGroups() };
+  const g = { valueGroups: defaultValueGroups(), colorMode: 'palette', palette: clonePal(palByName('Golden hour')), paletteLocks: {}, hazeRole: 'light', camX: 0, camY: 0 };
   for (const s of GLOBAL_SECTIONS) for (const p of s.params) g[p.key] = p.def;
   return g;
 }
@@ -223,6 +257,7 @@ export function makeLayer(band, kind, name, overrides = {}) {
   const layer = { id: newId('L'), name: name || KINDS[kind].label, band, kind, visible: true, locked: false, seed: Math.floor(Math.random() * 99999), p: {} };
   ensureParams(layer);
   if (kind === 'sky') { layer.p.distort = 0; }
+  Object.assign(layer.p, KINDS[kind].defaults || {});
   Object.assign(layer.p, overrides);
   return layer;
 }
@@ -252,8 +287,32 @@ export function sortLayers(scene) {
     .map((x) => x[0]);
 }
 
+// Palette mode: which role and ramp step a layer uses when set to Auto.
+export function autoRole(layer) {
+  if (layer.kind === 'sky') return ['ground', 0];
+  if (layer.kind === 'water') return ['ground', -1];
+  if (layer.kind === 'path') return layer.p.style === 'river' ? ['light', -1] : ['dominant', 1];
+  switch (layer.band) {
+    case 'sky': return ['light', 0];
+    case 'distant': return ['dominant', 1];
+    case 'middle': return ['dominant', 0];
+    case 'midfg': return ['secondary', 1];
+    case 'close': return ['secondary', 0];
+    default: return ['dark', 0];
+  }
+}
+export function resolveRole(layer) {
+  const p = layer.p;
+  if (p.role && p.role !== 'auto') return [p.role, p.step || 0];
+  const [r, st] = autoRole(layer);
+  return [r, st + (p.step || 0)];
+}
+
 export function aspectSize(aspect) {
   switch (aspect) {
+    case '3:2': return [1500, 1000];
+    case '4:5': return [1080, 1350];
+    case '2:3': return [1000, 1500];
     case '2:1': return [1800, 900];
     case '4:3': return [1440, 1080];
     case '1:1': return [1200, 1200];
@@ -277,7 +336,7 @@ export function defaultScene() {
     L('midfg', 'rows', 'Fields', { rows: 6, yTop: 0.705, yBottom: 0.93, perspective: 1.5, tilt: 0.04, fieldContrast: 0.05, hedgeSize: 9, hedgeGaps: 0.3, color: '#9fa862', ...soft, hueJitter: 22, jitterBy: 'object', groundDetail: 0 }),
     L('midfg', 'path', 'River', { startX: 0.57, startY: 0.705, endX: 0.8, endY: 1.06, startWidth: 0.008, endWidth: 0.42, meander: 0.14, color: '#7fa6d2', banks: 90, bankSize: 10, ...soft, valueNudge: 0.04, chroma: 1.3, accentColor: '#5f7f45', accentValue: -0.12 }),
     L('close', 'trees', 'Trees', { count: 2, x0: 0.07, x1: 0.3, baseY: 0.95, height: 0.62, trunk: 13, levels: 4, foliage: 40, density: 16, shapeSize: 0.75, foliageSpread: 1.15, midFoliage: 0.7, color: '#4f6e39', trunkColor: '#4a3a31', ...soft, shapeNoise: 0.32, volume: 0.8, rim: 0.2, clone: 0.45, cloneMode: 'cast', castLen: 0.55, cloneSoft: 5, contact: 0.5, groundDetail: 140 }),
-    L('close', 'clusters', 'Rocks', { count: 3, x0: 0.42, x1: 0.6, yTop: 0.9, yBottom: 0.95, clusterSize: 50, perCluster: 5, flat: 0.6, perspective: 0.3, color: '#8b8579', vocab: 'mix-hard', lightGroup: 'shape', volume: 0.3, contact: 0.6, valueNudge: 0.08, ground: false, chroma: 0.6, valueJitter: 0.05, hueJitter: 6 }),
+    L('close', 'clusters', 'Rocks', { count: 3, x0: 0.42, x1: 0.6, yTop: 0.9, yBottom: 0.95, clusterSize: 50, perCluster: 5, flat: 0.6, perspective: 0.3, color: '#8b8579', vocab: 'mix-hard', lightGroup: 'shape', volume: 0.3, contact: 0.6, valueNudge: 0.08, ground: false, chroma: 0.6, valueJitter: 0.05, hueJitter: 6, role: 'dark', step: 1 }),
     L('veryclose', 'grass', 'Grass', { count: 46, yTop: 0.955, bladeHeight: 80, color: '#667f3c', valueNudge: -0.02, flowers: 0.3, accentColor: '#efd780', hueJitter: 12, valueJitter: 0.04, jitterBy: 'object', groundDetail: 60 }),
   ];
   const globals = defaultGlobals();

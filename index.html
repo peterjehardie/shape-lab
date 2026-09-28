@@ -5,17 +5,29 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Shape Lab</title>
   <link rel="icon" href="data:," />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=Source+Serif+4:opsz,wght@8..60,500;8..60,600&display=swap" />
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
   <header class="topbar">
-    <div class="brand">Shape&nbsp;Lab</div>
+    <div class="brand"><h1>Shape Lab</h1><span>structured scenes, abstract shapes, one palette</span></div>
     <div class="seg" id="viewModes" role="group" aria-label="View">
       <button data-view="color" class="on">Colour</button>
       <button data-view="value">Values</button>
       <button data-view="notan2">2-value</button>
       <button data-view="notan3">3-value</button>
       <button data-view="groups">Groups</button>
+    </div>
+    <div class="seg" id="renderModes" role="group" aria-label="Rendering">
+      <button data-render="modelled" title="Full light: rounded and faceted modelling, volumes">Modelled</button>
+      <button data-render="form" title="Three ramp steps across each shape">Form</button>
+      <button data-render="flat" title="One colour per shape">Flat</button>
+      <button data-render="paper" title="Flat shapes throwing small paper shadows">Cut paper</button>
+    </div>
+    <div class="seg" id="matModes" role="group" aria-label="Mat">
+      <button data-mat="none">No mat</button><button data-mat="white">White mat</button><button data-mat="tint">Tinted</button><button data-mat="dark">Dark</button>
     </div>
     <label class="chk"><input type="checkbox" id="ovStructure" /> Structure</label>
     <div class="seg" id="tools" role="group" aria-label="Canvas tool">
@@ -26,25 +38,35 @@
       <button data-tool="erase" title="Click to hide objects (E)">Erase</button>
     </div>
     <div class="spacer"></div>
+    <div class="seg" id="skins" role="group" aria-label="Interface theme">
+      <button data-skin="auto">Auto</button><button data-skin="light">Light</button><button data-skin="mid">Mid</button><button data-skin="dark">Dark</button>
+    </div>
     <button id="btnUndo" title="Undo (Ctrl+Z)">Undo</button>
     <button id="btnRedo" title="Redo (Ctrl+Shift+Z)">Redo</button>
-    <button id="btnReseed" title="New random seed for every layer">Reseed all</button>
-    <button id="btnGraph" class="toggle">Node graph</button>
-    <button id="btnPng">Export PNG</button>
+    <button id="btnReseed" title="New random seed for every unlocked layer">Reseed all</button>
+    <button id="btnGraph" class="toggle">Graph</button>
+    <button id="btnPng" class="primary">Export PNG</button>
   </header>
   <main class="workspace">
     <aside class="panel left" id="layerPanel"></aside>
     <section class="stage">
-      <div class="canvas-wrap"><canvas id="view" width="1600" height="900"></canvas></div>
+      <div class="canvas-wrap"><div id="mat"><canvas id="view" width="1600" height="900"></canvas></div></div>
+      <div class="strip" id="strip" title="The palette at its target shares"></div>
       <div class="status" id="status"></div>
     </section>
     <aside class="panel right">
       <div class="tabs">
         <button data-tab="inspect" class="on">Inspector</button>
+        <button data-tab="palette">Palette</button>
         <button data-tab="library">Library</button>
+        <button data-tab="measure">Measure</button>
+        <button data-tab="motion">Motion</button>
       </div>
       <div id="inspector" class="tabbody"></div>
+      <div id="palette" class="tabbody" hidden></div>
       <div id="library" class="tabbody" hidden></div>
+      <div id="measure" class="tabbody" hidden></div>
+      <div id="motion" class="tabbody" hidden></div>
     </aside>
   </main>
   <section class="drawer" id="graphDrawer" hidden>

@@ -57,8 +57,10 @@ export const labCss = (L, a, b) => rgbCss(labToRgb(L, a, b));
 export const hueAB = (hDeg, C) => [C * Math.cos((hDeg * Math.PI) / 180), C * Math.sin((hDeg * Math.PI) / 180)];
 
 // A style turns a "shade" (-1 = full shadow, +1 = full light) into a colour.
-// Lightness moves inside the layer's value band; hue drifts warm in light, cool in shadow.
-export function makeStyle(o) {
+// Two kinds share one cache and interface:
+//  - makeStyle: free colour. Lightness moves inside a value band; hue drifts warm in light, cool in shadow.
+//  - makeRampStyle: palette colour. Shade walks along a role's five-step ramp.
+function styleCore(o, labOf) {
   const cache = new Map();
   const shadeMap = (shade) => {
     let s = clamp(shade * o.strength + o.bias, -1, 1);
@@ -69,21 +71,11 @@ export function makeStyle(o) {
     return s;
   };
   function lab(shade, lOff = 0, hr = 0) {
-    const s = shadeMap(shade);
-    const L = o.L + lOff + o.spread * s;
-    let a = o.ab[0], b = o.ab[1];
+    let [L, a, b] = labOf(shadeMap(shade));
+    L += lOff;
     if (hr) {
       const c = Math.cos((hr * Math.PI) / 180), sn = Math.sin((hr * Math.PI) / 180);
       [a, b] = [a * c - b * sn, a * sn + b * c];
-    }
-    if (s > 0) {
-      const w = o.sunWarm * s * 0.6;
-      a = lerp(a, o.sunAB[0], w);
-      b = lerp(b, o.sunAB[1], w);
-    } else {
-      const w = o.shadowCool * -s * 0.6;
-      a = lerp(a, o.shadowAB[0], w);
-      b = lerp(b, o.shadowAB[1], w);
     }
     if (o.grey) a = b = 0;
     return [L, a, b];
@@ -101,10 +93,45 @@ export function makeStyle(o) {
     return c;
   }
   return {
-    L: o.L,
+    L: labOf(0)[0],
     css: (shade, lOff, hr) => rgb(shade, lOff, hr).css,
     rgb: (shade, lOff, hr) => rgb(shade, lOff, hr).rgb,
-    steps: o.steps,
     lab,
+    steps: o.steps,
   };
+}
+
+export function makeStyle(o) {
+  return styleCore(o, (s) => {
+    const L = o.L + o.spread * s;
+    let a = o.ab[0], b = o.ab[1];
+    if (s > 0) {
+      const w = o.sunWarm * s * 0.6;
+      a = lerp(a, o.sunAB[0], w);
+      b = lerp(b, o.sunAB[1], w);
+    } else {
+      const w = o.shadowCool * -s * 0.6;
+      a = lerp(a, o.shadowAB[0], w);
+      b = lerp(b, o.shadowAB[1], w);
+    }
+    return [L, a, b];
+  });
+}
+
+// o.ramp: five OKLab colours (shadow to light); o.pos: where "no shading" sits (2 = base);
+// o.spread: how many steps full light or full shadow moves; o.haze: {lab, t, desat}.
+export function makeRampStyle(o) {
+  return styleCore(o, (s) => {
+    const pos = clamp(o.pos + s * o.spread, 0, 4);
+    const i = Math.min(3, Math.floor(pos)), f = pos - i;
+    const A = o.ramp[i], B = o.ramp[i + 1];
+    let L = lerp(A[0], B[0], f), a = lerp(A[1], B[1], f), b = lerp(A[2], B[2], f);
+    const h = o.haze;
+    if (h && h.t > 0) {
+      L = lerp(L, h.lab[0], h.t);
+      a = lerp(a, h.lab[1], h.t) * (1 - (h.desat || 0) * h.t);
+      b = lerp(b, h.lab[2], h.t) * (1 - (h.desat || 0) * h.t);
+    }
+    return [L + (o.lOff || 0), a, b];
+  });
 }

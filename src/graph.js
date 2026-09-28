@@ -4,6 +4,12 @@ import { noiseFor } from './rng.js';
 import { TAU, deg, clamp, newId } from './util.js';
 
 const cint = (v, a, b) => Math.max(a, Math.min(b, Math.round(v)));
+// Warp helpers work in frame-height units (x runs 0..aspect); output is hundredths of the height.
+const warpOut = (i, c, f) => {
+  const X = i[0] * c.aspect, Y = i[1];
+  const q = f(X, Y);
+  return [(q[0] - X) * 100, (q[1] - Y) * 100];
+};
 const hashF = (a, b, s) => {
   let h = Math.imul(a | 0, 374761393) + Math.imul(b | 0, 668265263) + Math.imul(s | 0, 2147483647);
   h = Math.imul(h ^ (h >>> 13), 1274126177);
@@ -13,6 +19,7 @@ const hashF = (a, b, s) => {
 // inputs: [name, default]. A default of 'x' or 'y' means "the point's own position".
 export const NODE_TYPES = {
   position: { label: 'Position', cat: 'Input', inputs: [], outputs: ['x', 'y'], params: {}, fn: (i, p, c) => [c.x, c.y] },
+  time: { label: 'Time', cat: 'Input', inputs: [], outputs: ['seconds'], params: { speed: 1 }, fn: (i, p, c) => [(c.time || 0) * p.speed], help: 'Counts up while Motion is playing' },
   depth: { label: 'Layer depth', cat: 'Input', inputs: [], outputs: ['depth'], params: {}, fn: (i, p, c) => [c.depth], help: '0 = far, 1 = near' },
   constant: { label: 'Number', cat: 'Input', inputs: [], outputs: ['value'], params: { value: 1 }, fn: (i, p) => [p.value] },
   noise: {
@@ -51,6 +58,86 @@ export const NODE_TYPES = {
       const w = Math.sin(d * p.freq * TAU) * p.amp * Math.max(0, 1 - d / Math.max(0.01, p.radius));
       return [(dx / d) * w, (dy / d) * w];
     },
+  },
+
+  // Warps from Chroma Mat. They output movement in hundredths of the frame height:
+  // with Graph out scale 9 the movement is true to size.
+  persp: {
+    label: 'Perspective (1 point)', cat: 'Warp', inputs: [['x', 'x'], ['y', 'y']], outputs: ['dx', 'dy'],
+    params: { vx: 0.5, vy: -0.7, amount: 0.5, fixed: 0 },
+    fn: (i, p, c) => warpOut(i, c, (X, Y) => {
+      const A = c.aspect, C = [A / 2, 0.5], V = [p.vx * A, p.vy];
+      let dx = V[0] - C[0], dy = V[1] - C[1], l = Math.hypot(dx, dy);
+      if (l < 1e-3) { dx = 0; dy = -1; l = 1; }
+      const n = [dx / l, dy / l];
+      let mn = 1e9, mx = -1e9;
+      for (const [x, y] of [[0, 0], [A, 0], [A, 1], [0, 1]]) { const q = (x - C[0]) * n[0] + (y - C[1]) * n[1]; mn = Math.min(mn, q); mx = Math.max(mx, q); }
+      const q = mn + (mx - mn) * p.fixed, P0 = [C[0] + n[0] * q, C[1] + n[1] * q];
+      const mu = 1 - 0.9 * clamp(p.amount, -1, 1), E = (V[0] - P0[0]) * n[0] + (V[1] - P0[1]) * n[1];
+      if (Math.abs(E) < 1e-6) return [X, Y];
+      const k = (mu - 1) / E, e = (X - P0[0]) * n[0] + (Y - P0[1]) * n[1];
+      const den = Math.max(0.15, 1 + k * e);
+      return [(X + k * e * V[0]) / den, (Y + k * e * V[1]) / den];
+    }),
+    help: 'Pulls everything toward a vanishing point (vx, vy in frame fractions); one line stays fixed',
+  },
+  fisheye: {
+    label: 'Fisheye (curvilinear)', cat: 'Warp', inputs: [['x', 'x'], ['y', 'y']], outputs: ['dx', 'dy'],
+    params: { cx: 0.5, cy: 0.5, radius: 0.6, amount: 0.5 },
+    fn: (i, p, c) => warpOut(i, c, (X, Y) => {
+      const cx = p.cx * c.aspect, cy = p.cy, R = Math.max(0.01, p.radius * Math.max(c.aspect, 1)), k = p.amount * 3;
+      const dx = X - cx, dy = Y - cy, r = Math.hypot(dx, dy);
+      if (r < 1e-6 || Math.abs(k) < 0.01) return [X, Y];
+      const r2 = k > 0 ? (R / k) * Math.atan((k * r) / R) : (R / -k) * Math.tan(Math.min((-k * r) / R, 1.4));
+      return [cx + (dx / r) * r2, cy + (dy / r) * r2];
+    }),
+  },
+  bulge: {
+    label: 'Bulge / pinch', cat: 'Warp', inputs: [['x', 'x'], ['y', 'y']], outputs: ['dx', 'dy'],
+    params: { cx: 0.5, cy: 0.5, radius: 0.35, amount: 0.5 },
+    fn: (i, p, c) => warpOut(i, c, (X, Y) => {
+      const cx = p.cx * c.aspect, cy = p.cy, R = Math.max(0.01, p.radius), dx = X - cx, dy = Y - cy, r = Math.hypot(dx, dy);
+      if (r >= R) return [X, Y];
+      const k = 1 + p.amount * (1 - (r / R) ** 2) ** 2;
+      return [cx + dx * k, cy + dy * k];
+    }),
+  },
+  shear: {
+    label: 'Shear', cat: 'Warp', inputs: [['x', 'x'], ['y', 'y']], outputs: ['dx', 'dy'],
+    params: { angle: 0, amount: 0.3 },
+    fn: (i, p, c) => warpOut(i, c, (X, Y) => {
+      const a = deg(p.angle), ca = Math.cos(a), sa = Math.sin(a), tc = -(X - c.aspect / 2) * sa + (Y - 0.5) * ca, dv = tc * p.amount;
+      return [X + ca * dv, Y + sa * dv];
+    }),
+  },
+  zigzag: {
+    label: 'Zigzag', cat: 'Warp', inputs: [['x', 'x'], ['y', 'y']], outputs: ['dx', 'dy'],
+    params: { angle: 90, freq: 6, amount: 0.35, phase: 0 },
+    fn: (i, p, c) => warpOut(i, c, (X, Y) => {
+      const a = deg(p.angle), ca = Math.cos(a), sa = Math.sin(a), L = Math.max(c.aspect, 1), A = p.amount * 0.08 * Math.min(c.aspect, 1);
+      const u = ((-X * sa + Y * ca) / L) * p.freq + p.phase, tri = 1 - 4 * Math.abs(u - Math.floor(u + 0.5));
+      return [X + ca * A * tri, Y + sa * A * tri];
+    }),
+  },
+  shatter: {
+    label: 'Shatter (angled slices)', cat: 'Warp', inputs: [['x', 'x'], ['y', 'y']], outputs: ['dx', 'dy'],
+    params: { angle: 30, freq: 7, amount: 0.35, seed: 3 },
+    fn: (i, p, c) => warpOut(i, c, (X, Y) => {
+      const a = deg(p.angle), ca = Math.cos(a), sa = Math.sin(a), L = Math.max(c.aspect, 1), A = p.amount * 0.08 * Math.min(c.aspect, 1);
+      const k = Math.floor(((-X * sa + Y * ca) / L) * p.freq), r = Math.sin(k * 12.9898 + (p.seed || 1) * 78.233) * 43758.5453, off = (r - Math.floor(r)) * 2 - 1;
+      return [X + ca * A * off * 1.5, Y + sa * A * off * 1.5];
+    }),
+  },
+  shimmer: {
+    label: 'Heat shimmer', cat: 'Warp', inputs: [['x', 'x'], ['y', 'y']], outputs: ['dx', 'dy'],
+    params: { horizon: 0.6, band: 0.15, freq: 14, amount: 0.35, seed: 5 },
+    fn: (i, p, c) => warpOut(i, c, (X, Y) => {
+      const ph = (c.time || 0) * 1.5 + p.seed, L = Math.max(c.aspect, 1), A = p.amount * 0.08 * Math.min(c.aspect, 1);
+      const w = Math.exp(-(((Y - p.horizon) / Math.max(0.02, p.band)) ** 2)), v = (Y / L) * p.freq;
+      const dx = Math.sin(v * TAU + ph + Math.sin((X / L) * 3 + ph * 0.7) * 1.5) + 0.5 * Math.sin(v * 2.3 * TAU + ph * 1.3);
+      return [X + A * 1.4 * w * dx, Y + A * 0.25 * w * Math.sin((X / L) * p.freq * 0.7 * TAU + ph)];
+    }),
+    help: 'Wobbles a band around the horizon; animates while Motion plays',
   },
   add: { label: 'Add', cat: 'Math', inputs: [['a', 0], ['b', 0]], outputs: ['value'], params: {}, fn: (i) => [i[0] + i[1]] },
   subtract: { label: 'Subtract', cat: 'Math', inputs: [['a', 0], ['b', 0]], outputs: ['value'], params: {}, fn: (i) => [i[0] - i[1]] },
@@ -180,7 +267,7 @@ export function compileGraph(graph) {
   visit(out.id, new Set());
   if (order.length === 1) return null;
   const linked = (name) => inLinks.has(`${out.id}:${name}`);
-  const uses = { move: linked('dx') || linked('dy'), value: linked('value'), size: linked('size'), density: linked('density') };
+  const uses = { move: linked('dx') || linked('dy'), value: linked('value'), size: linked('size'), density: linked('density'), time: order.some((n) => n.type === 'time' || n.type === 'shimmer') };
   const idx = new Map(order.map((n, i) => [n.id, i]));
   const steps = order.map((n) => {
     const T = NODE_TYPES[n.type];
@@ -248,6 +335,25 @@ export const GRAPH_PRESETS = {
     make: () => build({
       nodes: [['cells', 40, 30, { scale: 3 }], ['remap', 260, 30, { inMin: 0, inMax: 0.6, outMin: -1, outMax: 1 }], ['output', 480, 60, { scale: 0 }]],
       links: [[0, 'center', 1, 'value'], [1, 'value', 2, 'density']],
+    }),
+  },
+  perspective: {
+    label: 'Perspective: pull toward a vanishing point',
+    make: () => build({ nodes: [['persp', 60, 40, { vx: 0.5, vy: -0.6, amount: 0.45, fixed: 0 }], ['output', 330, 60, { scale: 9 }]], links: [[0, 'dx', 1, 'dx'], [0, 'dy', 1, 'dy']] }),
+  },
+  fisheye: {
+    label: 'Fisheye lens',
+    make: () => build({ nodes: [['fisheye', 60, 40, { amount: 0.45 }], ['output', 330, 60, { scale: 9 }]], links: [[0, 'dx', 1, 'dx'], [0, 'dy', 1, 'dy']] }),
+  },
+  shimmer: {
+    label: 'Heat shimmer at the horizon (animated)',
+    make: () => build({ nodes: [['shimmer', 60, 40, { horizon: 0.62, band: 0.12, amount: 0.5 }], ['output', 330, 60, { scale: 9 }]], links: [[0, 'dx', 1, 'dx'], [0, 'dy', 1, 'dy']] }),
+  },
+  windAnim: {
+    label: 'Wind gusts (animated)',
+    make: () => build({
+      nodes: [['position', 20, 60], ['time', 20, 220, { speed: 0.35 }], ['add', 200, 120], ['noise', 380, 40, { scale: 1.2, octaves: 2 }], ['remap', 380, 260, { inMin: 0, inMax: 1, outMin: 1, outMax: 0 }], ['multiply', 580, 120], ['output', 780, 100, { scale: 24 }]],
+      links: [[0, 'x', 2, 'a'], [1, 'seconds', 2, 'b'], [2, 'value', 3, 'x'], [0, 'y', 3, 'y'], [0, 'y', 4, 'value'], [3, 'value', 5, 'a'], [4, 'value', 5, 'b'], [5, 'value', 6, 'dx']],
     }),
   },
   depthSize: {

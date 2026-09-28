@@ -16,10 +16,10 @@ function ground(c, y, wave = 0.01) {
   const pts = [];
   const N = 60;
   for (let i = 0; i <= N; i++) {
-    const x = lerp(-0.03 * W, 1.03 * W, i / N);
+    const x = lerp(-0.3 * W, 1.3 * W, i / N);
     pts.push([x, y + noise.fbm((x / W) * 3, 9.1, 3) * wave * H]);
   }
-  pts.push([1.03 * W, H + 30], [-0.03 * W, H + 30]);
+  pts.push([1.3 * W, H + 30], [-0.3 * W, H + 30]);
   c.mass(pts, { ob: c.newOb(), cl: c.newCl(), n3: GROUND_N, ground: true, grad: { y0: y, y1: H, from: 0.04, to: -0.07 } });
   groundMarks(c, y);
   return pts;
@@ -190,10 +190,10 @@ export const KINDS = {
     ],
     generate(c) {
       const { p, W, H, rng, noise } = c;
-      const N = 200;
+      const N = 300;
       const pts = [];
       for (let i = 0; i <= N; i++) {
-        const x = lerp(-0.03 * W, 1.03 * W, i / N);
+        const x = lerp(-0.3 * W, 1.3 * W, i / N);
         const nx = (x / W) * p.frequency;
         const soft = noise.fbm(nx, 3.7, 5, 2, p.roughness) * 0.5 + 0.5;
         const hard = noise.ridged(nx + 11.3, 1.9, 5, 2, p.roughness);
@@ -202,7 +202,7 @@ export const KINDS = {
         pts.push([x, p.baseY * H - p.height * H * f]);
       }
       const bottom = H + 30;
-      const sil = [...pts, [1.03 * W, bottom], [-0.03 * W, bottom]];
+      const sil = [...pts, [1.3 * W, bottom], [-0.3 * W, bottom]];
       let facets = null;
       if (p.facets) {
         const thr = p.height * H * lerp(0.35, 0.03, p.facetDetail) + 1;
@@ -277,8 +277,8 @@ export const KINDS = {
       const k = Math.max(1, Math.round(p.bumps));
       const bumps = [];
       for (let i = 0; i < k; i++) {
-        const cx = lerp(-0.1, 1.1, (i + 0.5 + rng.signed() * 0.35) / k) * W;
-        const halfw = ((W * 1.2) / k) * p.overlap * rng.range(0.8, 1.25);
+        const cx = lerp(-0.3, 1.3, (i + 0.5 + rng.signed() * 0.35) / k) * W;
+        const halfw = ((W * 1.6) / k) * p.overlap * rng.range(0.8, 1.25);
         const peak = p.height * H * rng.range(1 - p.bumpVar, 1);
         bumps.push({ cx, halfw, peak });
       }
@@ -543,7 +543,7 @@ export const KINDS = {
         const yb = lerp(p.yTop, p.yBottom, T(k)) * H;
         const pts = [];
         for (let i = 0; i <= 40; i++) {
-          const x = lerp(-0.03, 1.03, i / 40) * W;
+          const x = lerp(-0.3, 1.3, i / 40) * W;
           pts.push([x, yb + (x / W - 0.5) * p.tilt * H * (1 - T(k) * 0.5) + noise.fbm((x / W) * 4, k * 3.1, 2) * p.wave * H]);
         }
         return pts;
@@ -553,7 +553,7 @@ export const KINDS = {
       if (p.fields) {
         for (let k = 0; k < n; k++) {
           c.scope(k + 1, (rng) => {
-            const poly = [...edges[k], ...(k === n - 1 ? [[1.03 * W, H + 30], [-0.03 * W, H + 30]] : [...edges[k + 1]].reverse())];
+            const poly = [...edges[k], ...(k === n - 1 ? [[1.3 * W, H + 30], [-0.3 * W, H + 30]] : [...edges[k + 1]].reverse())];
             c.mass(poly, { ob: k + 1, cl: k + 1, n3: GROUND_N, lOff: (k % 2 ? 1 : -1) * p.fieldContrast * rng.range(0.4, 1), ground: k === n - 1 });
           });
         }
@@ -654,6 +654,60 @@ export const KINDS = {
       { key: 'glints', label: 'Glints', type: 'range', min: 0, max: 300, step: 1, def: 50 },
     ],
     generate() {},
+  },
+
+  abstract: {
+    label: 'Abstract shapes (Chroma Mat)',
+    canAdd: true,
+    defaults: { vocab: 'mix-abstract', edgeStyle: 'rough', shapeNoise: 0.2, shapeNoiseScale: 1.2, rotJitter: 0, sizeJitter: 0.2, lightGroup: 'shape', volume: 0 },
+    params: [
+      R('count', 'Shapes', 0, 40, 1, 9),
+      R('sizeMin', 'Size min', 0.02, 0.8, 0.01, 0.06),
+      R('sizeMax', 'Size max', 0.04, 1.2, 0.01, 0.5),
+      R('aspectVar', 'Elongation', 0, 3, 0.01, 0.5),
+      S('placement', 'Placement', [['mixed', 'Mixed'], ['inside', 'Inside the frame'], ['edge', 'On the edges (cropped)'], ['grid', 'Loose grid'], ['free', 'Anywhere'], ['horizon', 'Along the horizon'], ['thirds', 'On thirds points']], 'mixed', { rebuild: true }),
+      R('horizonY', 'Horizon line', 0, 1, 0.005, 0.6, { show: (l) => l.p.placement === 'horizon' }),
+      R('spreadY', 'Spread above/below', 0, 0.4, 0.005, 0.06, { show: (l) => l.p.placement === 'horizon' }),
+      R('rotVar', 'Rotation', 0, 1, 0.01, 1),
+    ],
+    generate(c) {
+      const { p, W, H } = c;
+      const short = Math.min(W, H);
+      const n = Math.round(p.count);
+      const list = [];
+      for (let i = 0; i < n; i++) list.push({ x: 0, y: 0, gen: true });
+      withExtras(c, list).forEach((a) => {
+        c.scope(a.id, (rng) => {
+          const size = lerp(Math.min(p.sizeMin, p.sizeMax), Math.max(p.sizeMin, p.sizeMax), rng.next() ** 1.5) * short;
+          let asp = Math.exp(rng.gauss() * 0.5 * p.aspectVar);
+          let angle = p.rotVar * rng.range(0, TAU);
+          let x = a.x, y = a.y;
+          if (a.gen) {
+            let mode = p.placement;
+            if (mode === 'mixed') { const q = rng.next(); mode = q < 0.55 ? 'inside' : q < 0.85 ? 'edge' : 'free'; }
+            if (mode === 'inside') { x = lerp(size * 0.5, W - size * 0.5, rng.next()); y = lerp(size * 0.5, H - size * 0.5, rng.next()); }
+            else if (mode === 'edge') {
+              const sd = Math.floor(rng.next() * 4), t = lerp(0.08, 0.92, rng.next()), o = rng.gauss() * 0.08 * short;
+              [x, y] = sd === 0 ? [t * W, o] : sd === 1 ? [W + o, t * H] : sd === 2 ? [t * W, H + o] : [o, t * H];
+            } else if (mode === 'grid') {
+              const g = Math.ceil(Math.sqrt(n)), i = a.id - 1;
+              x = ((i % g) + 0.5) / g * W + rng.gauss() * W * 0.02;
+              y = (Math.floor(i / g) + 0.5) / g * H + rng.gauss() * H * 0.02;
+            } else if (mode === 'horizon') {
+              x = rng.range(-0.05, 1.05) * W;
+              y = (p.horizonY + rng.signed() * p.spreadY) * H;
+              asp = Math.max(asp, 1) * rng.range(2, 5);
+              angle = rng.signed() * 0.12 * p.rotVar;
+            } else if (mode === 'thirds') {
+              x = W * (rng.chance(0.5) ? 1 / 3 : 2 / 3) + rng.signed() * 0.04 * W;
+              y = H * (rng.chance(0.5) ? 1 / 3 : 2 / 3) + rng.signed() * 0.04 * H;
+            } else { x = lerp(-0.2, 1.2, rng.next()) * W; y = lerp(-0.2, 1.2, rng.next()) * H; }
+          }
+          c.shape(x, y, size, { ob: a.id, cl: a.id, stretch: Math.sqrt(asp), angle, keepAngle: true });
+          c.debug.points.push([x, y, size]);
+        });
+      });
+    },
   },
 
   drawn: {
