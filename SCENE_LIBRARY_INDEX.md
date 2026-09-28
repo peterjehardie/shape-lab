@@ -2,7 +2,7 @@
 
 *This is a non-binding reference list of things a complete scene library could include. It is not a plan, a to-do list or a set of rules.*
 
-**How to read it.** Each entry has a short name and one line saying what it is. Entries marked **(in app)** already exist in Shape Lab in some form (checked against `src/structures.js`, `src/scene.js`, `src/render.js`, `src/graph.js`, `src/library.js` and the canvas tools). The marking is cautious: when something is only roughly there, it is left unmarked or the line says "partly". Everything else is a possible addition.
+**How to read it.** Each entry has a short name and one line saying what it is. Entries marked **(in app)** already exist in Shape Lab in some form (checked against `src/structures.js`, `src/scene.js`, `src/render.js`, `src/graph.js`, `src/library.js`, `src/palette.js`, `src/measure.js`, `src/motion.js` and the canvas tools). The marking is cautious: when something is only roughly there, it is left unmarked or the line says "partly". Everything else is a possible addition.
 
 **A few terms used throughout:**
 - **Value**: how light or dark something is, ignoring its colour.
@@ -24,7 +24,7 @@
 - **Several layers per band (in app)**: Any number of layers can share a band, ordered back to front.
 - **Depth value per layer (in app)**: Each layer gets a 0 (far) to 1 (near) depth from its band and position.
 - **Horizon height (in app)**: Where the horizon sits in the frame.
-- **Frame shapes (in app)**: 16:9, 2:1 panorama, 4:3, square and 3:4 portrait.
+- **Frame shapes (in app)**: 16:9, 2:1 panorama, 3:2, 4:3, square, and 4:5, 3:4 and 2:3 portrait.
 - **Extra frame shapes**: Tall scroll format, very wide panorama, 5:4, golden rectangle, circular or oval vignette frame.
 - **Water layer (in app)**: A layer with a water line that mirrors what is above it, with ripple, wind streaks and glints.
 - **Underlay band**: A layer behind everything for paper tone or a coloured ground.
@@ -931,10 +931,10 @@
 - **Dark sky, light ground**: Storm light or snow scenes.
 - **Light foreground, dark middle**: Sunlit meadow against a shaded forest.
 - **Dark frame, light centre**: Dark near elements around a bright view (see framing).
-- **High key**: Mostly light values, e.g. snow or fog.
-- **Low key**: Mostly dark values, e.g. night or deep forest.
+- **High key (in app, as a palette-generator value key)**: Mostly light values, e.g. snow or fog.
+- **Low key (in app, as a palette-generator value key)**: Mostly dark values, e.g. night or deep forest.
 - **Full range**: From near-white to near-black with a clear focal contrast.
-- **Middle key**: Mostly mid values with small accents at both ends.
+- **Middle key (in app, as a palette-generator value key)**: Mostly mid values with small accents at both ends.
 - **Suggested grouping (partly: the app warns when groups overlap and can space them evenly)**: The app measures layers and proposes value groups.
 
 ### 10.2 Colour schemes
@@ -943,11 +943,11 @@
 - **Colour strength (in app)**: Per-layer saturation ("chroma", meaning how intense a colour is).
 - **Accent colour (in app, for grass flowers)**: A separate small-dose colour.
 - **Value and hue variety (in app)**: Small random value and hue shifts per shape, cluster or object so repeats do not look stamped.
-- **Analogous**: Neighbouring hues only, e.g. greens, blues and teals.
-- **Complementary**: Two opposite hues, e.g. orange light and blue shadow.
-- **Split complementary**: One hue plus the two neighbours of its opposite.
-- **Triad**: Three evenly spaced hues, one dominant.
-- **Monochrome**: One hue in many values.
+- **Analogous (in app, as a generator scheme)**: Neighbouring hues only, e.g. greens, blues and teals.
+- **Complementary (in app, as a generator scheme)**: Two opposite hues, e.g. orange light and blue shadow.
+- **Split complementary (in app, as a generator scheme)**: One hue plus the two neighbours of its opposite.
+- **Triad (in app, as a generator scheme)**: Three evenly spaced hues, one dominant.
+- **Monochrome (in app, as a generator scheme)**: One hue in many values.
 - **Limited palette**: Three or four paints' worth of colours only.
 - **Warm near, cool far (in app, via near tint and haze)**: Temperature used to push depth.
 - **Colour groups (partly, via near tint and haze)**: Like value groups but for hue families.
@@ -982,18 +982,18 @@
 - **Light wheel (RGB / CMY)**: The screen and printing wheel, where complements are different (blue opposite yellow, not orange).
 - **Perceptual wheel**: A wheel built in a perceptual space so equal steps look equally different.
 - **Tetrad (rectangle)**: Two pairs of complements, e.g. yellow-orange, blue-violet, red-violet, yellow-green.
-- **Square tetrad**: Four hues evenly spaced around the wheel; needs one clear leader.
+- **Square tetrad (in app, as a generator scheme)**: Four hues evenly spaced around the wheel; needs one clear leader.
 - **Near-complementary**: A hue with a neighbour of its opposite, softer than a true complement.
 - **Double split complementary**: Two neighbours on each side of a complementary pair.
 - **Analogous plus complementary accent**: A run of neighbouring hues with one small opposite spot.
-- **Dominant hue with minor hues**: One hue family covers most of the picture; others appear in small doses.
+- **Dominant hue with minor hues (in app, via palette roles)**: One hue family covers most of the picture; others appear in small doses.
 - **Achromatic with accent**: Greys everywhere and one coloured focal spot.
 - **Discord / clash**: Deliberately uneasy pairs (e.g. a light hue made darker than its partner) for tension.
 - **Natural order of value**: Keeping yellows light and violets dark, as they are in pure pigments.
 - **Reversed order of value**: Dark yellows and light violets for strange or moody scenes.
 - **Hue shifting ramps**: Moving hue as well as value along a shading ramp (e.g. warmer in light, cooler in shadow), common in pixel art.
 - **Hue rotation by depth**: Hues rotate gradually from near to far bands.
-- **Colour proportion 60/30/10**: One colour covers most area, a second supports, a third accents.
+- **Colour proportion 60/30/10 (partly: each palette sets a target share per role)**: One colour covers most area, a second supports, a third accents.
 
 ### 10.5 Gamut masking and limited ranges
 
@@ -1007,7 +1007,7 @@
 - **Low-chroma circle mask**: A small circle near the centre, for muted, grey-rich palettes.
 - **Mask rotation**: Turning the same mask to a new hue for a different mood.
 - **Gamut from pigments**: The colours that a chosen set of paints can actually mix.
-- **Gamut clipping**: Colours outside what a screen can show are cut to the nearest showable colour.
+- **Gamut clipping (partly: the palette flags colours that clip on screen)**: Colours outside what a screen can show are cut to the nearest showable colour.
 - **Gamut compression**: Out-of-range colours are squeezed in smoothly instead of clipped.
 
 ### 10.6 Value and chroma structure
@@ -1027,12 +1027,12 @@
 ### 10.7 Perceptual colour spaces
 
 - **sRGB**: The standard screen colour space; simple but not perceptually even.
-- **Linear RGB**: RGB without the display curve, correct for light maths such as blending light.
+- **Linear RGB (in app, in palette exports)**: RGB without the display curve, correct for light maths such as blending light.
 - **HSL / HSV**: Hue-saturation-lightness models; easy to use but lightness is not what the eye sees.
 - **CIELAB (L\*a\*b\*)**: A space with a lightness axis and two colour axes, designed to be roughly even to the eye.
 - **CIELCh**: CIELAB in polar form: lightness, chroma, hue angle.
-- **OKLab**: A modern space that predicts lightness and hue more evenly than CIELAB.
-- **OKLCH**: OKLab in polar form; good for building palettes by lightness, chroma and hue.
+- **OKLab (in app, the app's colour space)**: A modern space that predicts lightness and hue more evenly than CIELAB.
+- **OKLCH (in app, palettes are built in it)**: OKLab in polar form; good for building palettes by lightness, chroma and hue.
 - **HSLuv**: An HSL-like picker built on a perceptual space, so equal lightness looks equal.
 - **Munsell system**: A painter's colour atlas using hue, value and chroma steps chosen by eye.
 - **Colour appearance models (CAM16)**: Models that also account for surroundings and lighting.
@@ -1087,11 +1087,11 @@
 
 ### 10.11 Palette generators
 
-- **From a key colour**: Build the whole palette by rotating and shading one chosen colour.
-- **From a harmony rule**: Pick a scheme (triad, split, and so on) and generate hues, values and chromas.
-- **From an image**: Pull the main colours out of a photo or painting (colour clustering such as k-means).
+- **From a key colour (partly: the generator starts from a base hue)**: Build the whole palette by rotating and shading one chosen colour.
+- **From a harmony rule (in app, palette generator)**: Pick a scheme (triad, split, and so on) and generate hues, values and chromas.
+- **From an image (in app)**: Pull the main colours out of a photo or painting (colour clustering such as k-means).
 - **From a gamut mask**: Sample colours only inside a drawn mask.
-- **From time of day**: Sun height sets light colour, sky colour and shadow colour.
+- **From time of day (partly, via ready palettes such as Golden hour, Blue hour and Moonlit night)**: Sun height sets light colour, sky colour and shadow colour.
 - **From season**: Ready hue families for spring, summer, autumn and winter.
 - **From weather**: Clear, hazy, stormy, foggy and snowy colour sets.
 - **From a mood word**: Calm, dramatic, eerie and so on mapped to colour sets.
@@ -1099,10 +1099,17 @@
 - **Cosine palette**: A smooth run of colours made from a simple repeating wave per channel.
 - **Ramp interpolation in OKLCH**: Even gradients between two colours with no muddy middle.
 - **Value-locked generator**: Generates hues while keeping each value group's lightness.
-- **Palette lock and reroll**: Keep some colours fixed and reroll the rest.
-- **Palette scoring**: Rate a palette for contrast, harmony and value spread.
-- **Palette swap**: Apply a new palette to the same scene, matching by value.
+- **Palette lock and reroll (in app, role locks)**: Keep some colours fixed and reroll the rest.
+- **Palette scoring (partly, as palette checks for value range, contrast and accent chroma)**: Rate a palette for contrast, harmony and value spread.
+- **Palette swap (in app)**: Apply a new palette to the same scene; layers keep their roles and ramp steps.
 - **Colour-blind check**: Preview the palette as seen with common colour-vision differences.
+- **Six colour roles with ramps (in app)**: Ground, dominant, secondary, accent, dark and light, each with a five-step ramp from shadow to light.
+- **Palette library (in app)**: 87 ready palettes in categories such as landscape light, interior, graphic, film grade and animation backgrounds.
+- **Roles by depth (in app)**: Every layer takes its role automatically from its depth band.
+- **Recolour to target shares (in app)**: Reassign roles so each covers close to its target share of the picture.
+- **Saved palettes (in app)**: Your own palettes kept in the browser.
+- **Random palette from a category (in app)**: Load a random palette from the current view.
+- **Palette export (in app)**: JSON, CSS variables, a Blender script or a three.js module.
 
 ## 11. Composition structures
 
@@ -1120,7 +1127,7 @@
 
 ### 11.2 Placement grids
 
-- **Rule of thirds**: Key lines and focal points placed on a 3-by-3 grid.
+- **Rule of thirds (partly: abstract shapes can sit on thirds points)**: Key lines and focal points placed on a 3-by-3 grid.
 - **Golden section**: A similar grid based on the golden ratio (about 0.618).
 - **Centred symmetry**: A calm, formal layout around the middle.
 - **Diagonal split**: The picture divided along a diagonal.
@@ -1330,7 +1337,7 @@
 - **Value gradient lead**: A gradual lightening toward the focus.
 - **Exit stoppers**: A tree or dark mass at the edge that turns the eye back in.
 - **Rest areas**: Quiet spaces where the eye pauses.
-- **Visual weight balance**: Big, dark, saturated or detailed things weigh more; balance them across the frame.
+- **Visual weight balance (partly: the Measure tab shows the colour-mass centre)**: Big, dark, saturated or detailed things weigh more; balance them across the frame.
 
 ### 11.15 Focal point tricks
 
@@ -1391,7 +1398,7 @@
 
 ### 11.19 Cropping
 
-- **Bleed off the edge**: Letting big shapes run out of the frame to suggest scale.
+- **Bleed off the edge (partly: abstract shapes can be cropped on the edges)**: Letting big shapes run out of the frame to suggest scale.
 - **Tight crop**: Cutting in close for intimacy.
 - **Loose crop**: Plenty of space around the subject.
 - **Cut through objects deliberately**: Clear, intentional cuts rather than near misses.
@@ -1405,7 +1412,8 @@
 ### 11.20 Formats and aspect choices
 
 - **16:9 and 4:3 (in app)**: Screen formats.
-- **3:2**: The 35mm photo format.
+- **3:2 (in app)**: The 35mm photo format.
+- **4:5 and 2:3 portrait (in app)**: Tall formats for single subjects.
 - **5:4**: A near-square, calm format.
 - **21:9 cinematic**: A wide film format.
 - **3:1 panorama**: A very long strip for wide valleys.
@@ -1450,7 +1458,7 @@
 - **Shard (in app)**: A sharp, broken-looking angular shape.
 - **Spiky star (in app)**: A star-like shape with points.
 - **Teardrop**: A round shape with one point.
-- **Crescent**: A curved moon shape.
+- **Crescent (in app)**: A curved moon shape.
 - **Scallop**: A shape with a bumpy, cloud-like edge.
 - **Heart / double lobe**: Two round lobes, useful for leaves.
 - **Needle**: A very thin long shape for pine needles and grass.
@@ -1458,14 +1466,17 @@
 - **Hexagon / polygon**: Many-sided flat shapes for rock and basalt.
 - **Capsule**: A long rounded shape for stones and cloud puffs.
 - **Brush dab**: A shape like a single brush mark.
-- **Wedge**: A tapering slice for grass and shards.
+- **Wedge (in app)**: A tapering slice for grass and shards.
 - **Ring**: A hollow circle for ripples.
+- **Wavy band (in app)**: A long strip with wavy edges.
+- **Arc band (in app)**: A curved strip cut from a ring.
 
 ### 12.2 Mixes
 
 - **Mix: soft (in app)**: Circles, ellipses, blobs and leaves.
 - **Mix: foliage (in app)**: Mostly blobs, with circles, leaves and ellipses.
 - **Mix: hard (in app)**: Squares, triangles and shards.
+- **Mix: abstract (in app)**: Superellipses, star polygons, crescents, wedges and bands.
 - **Mix: everything (in app)**: All base shapes.
 - **Weighted mixes**: Choosing how often each shape appears.
 - **Custom saved mixes**: User-made shape sets with names.
@@ -1493,9 +1504,11 @@
 
 - **Edge noise per shape (in app)**: Roughens each shape's outline, sized to the shape.
 - **Hard edge**: A crisp boundary, for near and sunlit things.
-- **Soft edge**: A blurred boundary, for far or misty things.
+- **Soft edge (in app, via edge softness)**: A blurred boundary, for far or misty things.
 - **Lost edge (in app, for outlines)**: An edge that disappears where two areas match in value.
 - **Found edge**: An edge kept sharp where values contrast.
+- **Torn edge (in app)**: A ragged edge like torn paper, per shape or per layer.
+- **Dissolving edge (in app)**: A layer breaking into noise holes.
 - **Broken edge**: An edge with gaps, like dry brush.
 - **Serrated edge**: Saw-tooth edges for pine and grass.
 - **Scalloped edge**: Bumpy edges for foliage and cloud.
@@ -1569,8 +1582,9 @@
 
 - **Smooth shading (in app)**: Continuous light-to-shadow blend.
 - **Stepped / cel shading (in app)**: Hard flat bands of light and shadow, like cartoons.
+- **Form light (in app)**: A three-step rendering style that shows form simply.
 - **Posterisation**: The whole picture cut into a few flat colour levels.
-- **Flat colour**: No shading, value groups only.
+- **Flat colour (in app, Flat rendering)**: No shading, value groups only.
 - **Gradient fills per mass**: Each mass shaded top to bottom.
 - **Dither shading**: Light and shadow made from dot patterns.
 - **Halftone**: Dots of varying size, like printed newspapers.
@@ -1593,9 +1607,9 @@
 - **Paper texture (in app, as paper grain)**: Fine grain showing through the whole picture.
 - **Watercolour paper**: Rough texture with colour pooling at edges.
 - **Canvas weave**: A woven pattern overlay.
-- **Film grain / noise**: Fine random speckle.
+- **Film grain / noise (in app, as paper grain and grain inside shapes)**: Fine random speckle.
 - **Brush texture in fills**: Streaks inside shapes following a direction.
-- **Dry brush edges**: Broken, scratchy shape edges.
+- **Dry brush edges (partly, via torn edges)**: Broken, scratchy shape edges.
 - **Sponge texture**: Blotchy texture for foliage.
 - **Splatter**: Random droplets of colour.
 - **Wash bleeding**: Soft colour spreading past edges.
@@ -1614,7 +1628,7 @@
 - **Vignette (in app)**: Darkened corners.
 - **Extra blur per layer (in app)**: Soften one layer on its own.
 - **Chromatic fringe**: Slight colour split at edges, for a retro camera look.
-- **Border / mat**: A frame or margin around the image.
+- **Border / mat (in app: white, tinted or dark mat)**: A frame or margin around the image.
 - **Signature / seal stamp**: A small red square seal, East Asian style (as decoration only).
 
 ### 15.5 Style families
@@ -1629,7 +1643,7 @@
 - **Storybook**: Soft round shapes, warm palette.
 - **Pixel art**: Low-resolution blocky pixels with limited colours.
 - **Low-poly**: Flat-shaded triangle facets.
-- **Paper cut / layered paper**: Flat layers with soft drop shadows between them.
+- **Paper cut / layered paper (in app, Cut paper rendering)**: Flat layers with soft drop shadows between them.
 - **Stained glass**: Flat colour cells with thick dark leading lines.
 - **Mosaic**: Small tile pieces making up the image.
 - **Silhouette art**: Everything dark against a coloured sky.
@@ -1655,6 +1669,7 @@
 - **Rows / rhythm structure (partly, via fields, hedges and fences)**: Repeated elements in lines (fences, vines, poles).
 - **Drawn shapes (in app)**: A hand-drawn outline filled with a mass, shapes, or both, with shapes along its edge.
 - **Terraces**: Stacked contour steps across a slope.
+- **Abstract shapes structure (in app)**: Free shapes placed inside the frame, cropped on the edges, on a loose grid, along the horizon or on thirds points.
 - **Fields, hedges and fences (in app)**: Field strips in perspective with hedges and an optional fence.
 - **Field grid**: A patchwork of fields in perspective.
 - **Dunes**: Curved ridges with a sharp crest.
@@ -1734,12 +1749,18 @@
 - **Band mask node (in app)**: Limits an effect to a range, e.g. only the top of the picture.
 - **Displacement output (in app)**: How far points move sideways and up/down.
 - **Wind node (partly, as a wind graph preset)**: Bends things from their roots, more at the tips.
-- **Bulge / pinch**: Swell or squeeze around a point.
-- **Shear / lean**: Slant everything by height.
+- **Bulge / pinch (in app)**: Swell or squeeze around a point.
+- **Shear / lean (in app)**: Slant everything by height.
 - **Twist per object**: Rotate each object's top relative to its base.
 - **Steps node (in app)**: Snaps values into terraces.
 - **Clamp, smooth step and power nodes (in app)**: Limit and shape a value's curve.
 - **Linear gradient node (in app)**: A value that rises along a chosen direction.
+- **Perspective node (in app)**: Pulls points toward a single vanishing point.
+- **Fisheye node (in app)**: Curvilinear lens bending.
+- **Zigzag node (in app)**: A saw-tooth shift across the picture.
+- **Shatter node (in app)**: Angled slices shifted against each other.
+- **Heat shimmer node (in app)**: Fine wavy distortion in bands.
+- **Time node (in app)**: Seconds of playback, so the graph can animate.
 - **Cells node (in app)**: Cell edges and centres for cracked or tiled patterns.
 - **Random per object**: A different value for each object.
 - **Curve / falloff node (partly, via smooth step and power)**: Shape how a value rises and falls.
@@ -1791,8 +1812,9 @@
 - **Lock layer**: Stop accidental changes.
 - **Solo layer**: Show only one layer.
 - **Layer groups / folders**: Group several layers to edit together.
+- **Edge and texture looks (in app)**: Ten one-click looks such as Torn paper, Washed away, Dissolving and Watercolour bloom.
 - **Copy and paste a look (in app)**: Move colour, variety, light, fake-light and line settings between layers.
-- **Layer opacity / blend**: Make a layer see-through or blend differently.
+- **Layer opacity / blend (partly: per-layer opacity and graded fade; blend modes only for grain)**: Make a layer see-through or blend differently.
 
 ### 17.2 Viewing and checking
 
@@ -1805,7 +1827,12 @@
 - **Mirror view**: Flip the picture to spot balance problems.
 - **Thumbnail view**: A tiny preview to judge the overall design.
 - **Grid overlays**: Thirds, golden section and diagonals drawn over the picture.
-- **Value histogram**: A chart of how much of each value is used.
+- **Value histogram (in app, Measure tab)**: A chart of how much of each value is used.
+- **Warm / cool balance (in app, Measure tab)**: How much of the picture's colour is warm versus cool.
+- **Colour-mass centre (in app, Measure tab)**: Where the colour weight of the picture sits, with an optional marker.
+- **Role areas (in app, Measure tab)**: Each palette role's actual share against its target.
+- **Hue and chroma wheel (in app, Measure tab)**: The palette roles plotted by hue, chroma and area.
+- **Interface skins (in app)**: Light, mid and dark app themes.
 - **Split before / after**: Compare two versions side by side.
 - **Zoom and pan**: Look closely at part of the scene.
 
@@ -1865,6 +1892,7 @@
 - **Golden valley (in app)**: The default: low warm sun, fields and a river in the middle ground, soft depth blur and grain.
 - **Alpine lake (in app)**: Snowy peaks mirrored in still water, pines up close.
 - **Desert mesas (in app)**: Flat-topped rock ranges, dry scrub and a high hard sun.
+- **Abstract depth: clear day, backlit, fog and night (in app)**: Simple abstract layered scenes built from a palette's ramps by depth.
 - **Backlit evening (in app)**: Low warm sun ahead of the viewer, silhouettes with rim light.
 - **Misty ridges (in app)**: Many ridges stepping back in small even value steps.
 - **Graphic poster (in app)**: Two-step shading, ink outlines, three value groups.
@@ -2021,6 +2049,9 @@
 - **Mesas (in app)**: A flat-topped far ridge.
 - **Cirrus wisps (in app)**: High thin cloud streaks.
 - **Framing branch preset (in app)**: A dark leafy branch from the right edge.
+- **Abstract scatter (in app)**: Free abstract shapes in the middle foreground.
+- **Abstract horizon band (in app)**: A row of abstract forms along the horizon.
+- **Cropped dark foreground (in app)**: Large dark shapes cut by the frame edges.
 - **Your own saved layer presets (in app)**: Any layer saved for reuse.
 - **Pine tree line**: A row of small conifers along a hill base.
 - **Broadleaf tree line (in app, in the default scene)**: A row of small rounded trees.
@@ -2249,10 +2280,10 @@
 - **Isosceles triangle**: A tall triangle with two equal sides, like a fir tree.
 - **Pentagon, hexagon, octagon**: Regular shapes with five, six or eight sides.
 - **Regular n-gon**: A regular shape with any number of sides.
-- **Star polygon**: A star with any number of points and inner radius.
+- **Star polygon (in app)**: A star with any number of points and inner radius.
 - **Semicircle**: Half a circle, like a sunrise.
 - **Arc**: A curved stroke from part of a circle.
-- **Annulus sector**: A curved band cut from a ring, like a rainbow piece.
+- **Annulus sector (in app, as arc band)**: A curved band cut from a ring, like a rainbow piece.
 - **Stadium / capsule**: A rectangle with round ends.
 - **Cross / plus**: Two bars crossing.
 - **Chevron**: A V-shaped bar, like a bird mark.
@@ -2262,7 +2293,7 @@
 
 ### 21.2 Superellipses and formula shapes
 
-- **Superellipse (squircle)**: A shape between a circle and a square, set by one roundness number.
+- **Superellipse (squircle) (in app)**: A shape between a circle and a square, set by one roundness number.
 - **Lamé curve**: The formula behind superellipses, allowing star-like to box-like shapes.
 - **Superformula**: A single formula that makes flowers, stars, shells and leaves by changing a few numbers.
 - **Rounded polygon**: Any polygon with softened corners.
@@ -2419,7 +2450,7 @@
 - **Simplify**: Remove points while keeping the overall shape.
 - **Subdivide**: Add points so the outline can bend more smoothly.
 - **Roughen edge (in app, as edge noise)**: Push the outline in and out with noise.
-- **Fracture / shatter**: Break a shape into shards, e.g. with Voronoi cells.
+- **Fracture / shatter (partly, via the shatter warp)**: Break a shape into shards, e.g. with Voronoi cells.
 - **Slice**: Cut a shape along a line into two.
 - **Mirror**: Flip a shape.
 - **Radial array**: Copies arranged in a circle.
@@ -2488,8 +2519,8 @@
 - **Swirl (in app, as a graph node)**: A twist around a point.
 - **Ripple warp (in app, as a graph node)**: Circular waves pushing outward.
 - **Wave warp**: Regular waves across the picture.
-- **Fisheye / barrel**: Bulging lens distortion.
-- **Heat haze warp**: Small wavy distortion in bands.
+- **Fisheye / barrel (in app, as a graph node)**: Bulging lens distortion.
+- **Heat haze warp (in app, as a graph node)**: Small wavy distortion in bands.
 - **Liquify**: Pushing parts of the picture by hand.
 
 ### 22.5 Simulated media
@@ -2525,7 +2556,7 @@
 
 ### 22.7 Texture overlays
 
-- **Coloured noise**: Grain with colour variation.
+- **Coloured noise (in app, via grain hue jitter)**: Grain with colour variation.
 - **Dust and scratches**: Specks and lines like an old print.
 - **Fold and crease texture**: Light and dark lines like folded paper.
 - **Torn paper edge**: A ragged fibrous border.
@@ -2534,7 +2565,7 @@
 - **Fabric weave**: Linen or canvas threads.
 - **Wood grain**: Grain lines as in a woodblock print.
 - **Concrete / plaster**: Rough mottled wall texture, for fresco looks.
-- **Noise overlay per band**: Different grain amounts for near and far.
+- **Noise overlay per band (in app, via per-layer grain)**: Different grain amounts for near and far.
 
 ### 22.8 Colour effects
 
@@ -2543,34 +2574,34 @@
 - **Channel mixer**: Rebuilding colour from blended channels.
 - **Split toning**: One tint in the lights and another in the shadows.
 - **Tritone**: Three inks for dark, middle and light tones.
-- **Colour cycling**: Palette colours shifting over time for animated water or fire.
+- **Colour cycling (partly, via hue drift)**: Palette colours shifting over time for animated water or fire.
 - **Hue shift by depth**: Hue rotates across depth bands.
 
 ## 23. Motion effects
 
-*None of these exist in the app yet. They list what animating the scenes could involve.*
+*The app now has a Motion tab with whole-scene keyframes, camera parallax and a few continuous flows; entries marked (in app) come from it. The rest list what animating the scenes could involve.*
 
 ### 23.1 Depth and camera
 
-- **Parallax by depth band**: Near bands move faster than far bands when the view shifts, giving strong depth.
+- **Parallax by depth band (in app, camera pan)**: Near bands move faster than far bands when the view shifts, giving strong depth.
 - **Parallax scroll loop**: Endless sideways scrolling with each band wrapping, as in side-scrolling games.
-- **Pan**: The view slides sideways across the scene.
+- **Pan (in app)**: The view slides sideways across the scene.
 - **Tilt**: The view slides up or down, e.g. from sky down to foreground.
 - **Push-in**: A slow move toward the scene.
 - **Pull-out**: A slow move away to reveal more.
-- **Truck**: The camera slides sideways, so parallax shows depth.
-- **Pedestal / crane rise**: The camera rises, revealing the land over a foreground edge.
+- **Truck (in app, camera pan with parallax)**: The camera slides sideways, so parallax shows depth.
+- **Pedestal / crane rise (partly, via camera pan up/down)**: The camera rises, revealing the land over a foreground edge.
 - **Dolly-zoom**: Moving in while zooming out (or the reverse) so the subject stays the same size while the background grows or shrinks.
 - **Ken Burns move**: A slow combined pan and zoom over a still picture.
 - **Rack focus**: Depth blur shifts from one band to another.
 - **Orbit (fake)**: Bands slide in opposite directions around a centre depth.
 - **Camera shake**: Small quick jitter for storms or drama.
-- **Handheld drift**: Slow, gentle wandering movement.
+- **Handheld drift (in app, as camera sway)**: Slow, gentle wandering movement.
 - **Reveal from behind**: The view moves past a foreground tree or rock to reveal the scene.
 
 ### 23.2 Wind and plants
 
-- **Wind sway**: Trees, grass and branches bend and return.
+- **Wind sway (in app, via the animated Wind gusts graph)**: Trees, grass and branches bend and return.
 - **Gust wave**: A band of stronger wind travelling across a field of grass.
 - **Grass ripple**: Rolling waves through tall grass.
 - **Leaf flutter**: Small fast jitter in individual leaves.
@@ -2582,7 +2613,7 @@
 
 ### 23.3 Sky and weather
 
-- **Cloud drift**: Clouds sliding across the sky, faster when nearer.
+- **Cloud drift (in app, sky layers drift)**: Clouds sliding across the sky, faster when nearer.
 - **Cloud growth**: Cumulus puffing up and changing shape.
 - **Cloud shadow drift**: Dark patches moving over the hills.
 - **Fog rolling**: Fog banks moving and thinning.
@@ -2595,7 +2626,7 @@
 - **Stars twinkling**: Stars flickering gently.
 - **Shooting star streak**: A quick streak across the night sky.
 - **Aurora waving**: Curtains of light rippling.
-- **Moving heat shimmer**: Wavy distortion moving above hot ground.
+- **Moving heat shimmer (in app, animated graph preset)**: Wavy distortion moving above hot ground.
 - **Dust devils**: Small spinning dust columns crossing a desert.
 
 ### 23.4 Water
@@ -2615,7 +2646,7 @@
 - **Light flicker**: Firelight or lanterns wavering.
 - **Dappled light shifting**: Leaf-shadow patches moving as branches sway.
 - **Light shafts shifting**: Beams moving and changing as clouds pass.
-- **Sun movement**: The sun and shadows moving across a time-lapse.
+- **Sun movement (in app, light orbit)**: The sun and shadows moving across a time-lapse.
 - **Day-night cycle**: Sky, light colour, shadows and lights changing through a full day.
 - **Sunset colour shift**: The sky and land warming then cooling as the sun sets.
 - **Lights switching on**: Windows lighting up one by one at dusk.
@@ -2649,17 +2680,18 @@
 - **Line-drawing reveal**: Outlines drawing on before fills appear.
 - **Shape morphing**: One shape changing smoothly into another.
 - **Growth animation**: Trees growing branch by branch from a seed point.
-- **Colour grade transition**: A slow change from one palette to another.
+- **Colour grade transition (in app, via keyframes blending palettes)**: A slow change from one palette to another.
+- **Hue drift (in app)**: All palette hues slowly rotating while playing.
 - **Seed shuffle**: Stepping through random seeds as a flickering animation.
 
 ### 23.8 Easing curves
 
 *Easing is how a movement speeds up and slows down between two points.*
 
-- **Linear**: Constant speed; mechanical.
+- **Linear (in app)**: Constant speed; mechanical.
 - **Ease in**: Starts slow, ends fast.
 - **Ease out**: Starts fast, ends slow.
-- **Ease in-out**: Slow at both ends, fastest in the middle.
+- **Ease in-out (in app, as Smooth)**: Slow at both ends, fastest in the middle.
 - **Sine easing**: A gentle, natural curve.
 - **Cubic and quintic easing**: Stronger versions with a sharper speed change.
 - **Exponential easing**: Very slow then very fast (or the reverse).
@@ -2675,7 +2707,8 @@
 
 - **Seamless loop**: The last frame flows into the first with no jump.
 - **Loop by periodic noise**: Noise sampled around a circle so it returns to where it started.
-- **Ping-pong loop**: Playing forward then backward.
+- **Ping-pong loop (in app)**: Playing forward then backward.
+- **Loop and play-once modes (in app)**: Jump back to the start, or stop at the last keyframe.
 - **Cross-fade loop**: Blending the end into the start.
 - **Layered loop lengths**: Different layers looping at different lengths for a less repetitive feel.
 - **Loop length finder**: Choosing a length that all loops fit into evenly.
@@ -2713,8 +2746,8 @@
 ### 24.3 Procedural motion
 
 - **Noise-driven sway**: Each object sways by smooth noise, with its phase set by its position.
-- **Time input in the node graph**: A time value in the existing distortion graph, so any displacement can move.
-- **Wind graph over time**: The existing wind preset animated by moving its noise.
+- **Time input in the node graph (in app)**: A time value in the existing distortion graph, so any displacement can move.
+- **Wind graph over time (in app, Wind gusts preset)**: The existing wind preset animated by moving its noise.
 - **LFOs (slow oscillators)**: Repeating waves that drive any setting up and down.
 - **Random walks**: Values that wander smoothly over time.
 - **Expressions**: Small formulas that drive a setting, such as "sway = sin(time)".
@@ -2734,13 +2767,13 @@
 
 ### 24.5 Keyframes, curves and timeline
 
-- **Keyframes**: Stored values at chosen times, with in-betweens filled automatically.
+- **Keyframes (in app, whole-scene snapshots)**: Stored values at chosen times, with in-betweens filled automatically.
 - **Per-layer animation channels**: Any layer setting can be animated on its own track.
-- **Scene-setting channels**: Sun angle, haze, sky colours and finish settings as animatable tracks.
+- **Scene-setting channels (partly: whole-scene keyframes blend every setting together)**: Sun angle, haze, sky colours and finish settings as animatable tracks.
 - **Curve editor**: A graph of each value over time with easing handles.
 - **Dope sheet**: A grid of keyframes for quick timing changes.
-- **Timeline and scrubbing**: A bar to drag through time and preview.
-- **Playback controls**: Play, pause, loop and step frame by frame.
+- **Timeline and scrubbing (in app, scrub slider)**: A bar to drag through time and preview.
+- **Playback controls (partly: play, pause and back to start)**: Play, pause, loop and step frame by frame.
 - **Frame rate**: Frames per second (12 for hand-drawn feel, 24 or 30 for smooth).
 - **Duration and loop region**: Setting the length and the part that repeats.
 - **Markers**: Named points on the timeline for events such as a lightning flash.
@@ -2768,7 +2801,7 @@
 
 ### 24.8 Preview and performance
 
-- **Real-time preview**: Playing the animation live at lower quality.
+- **Real-time preview (in app)**: Playing the animation live at lower quality.
 - **Frame cache**: Storing rendered frames for smooth playback.
 - **Layer caching**: Keeping static layers as images while only moving layers redraw.
 - **Render queue**: Rendering several animations or sizes in order.
