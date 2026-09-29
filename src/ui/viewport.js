@@ -156,7 +156,7 @@ export class Viewport {
     const doc = app.doc;
     // artboard label
     const [ax, ay] = app.docToScreen(0, 0);
-    ctx.font = '11px Inter, system-ui, sans-serif';
+    ctx.font = '11px "IBM Plex Sans", system-ui, sans-serif';
     ctx.fillStyle = '#8b8f98';
     ctx.fillText(`${doc.name} · ${doc.artboard.w} × ${doc.artboard.h}`, ax, ay - 8);
 
@@ -208,7 +208,7 @@ export class Viewport {
     // size readout while dragging a shape tool
     if (this.drag?.readout) {
       const [mx, my] = this.mouse || [0, 0];
-      ctx.font = '11px Inter, system-ui, sans-serif';
+      ctx.font = '11px "IBM Plex Sans", system-ui, sans-serif';
       const t = this.drag.readout;
       const w = ctx.measureText(t).width + 10;
       ctx.fillStyle = 'rgba(20,21,24,0.9)';
@@ -326,7 +326,7 @@ export class Viewport {
       const b = this.app.selectionBounds();
       const t = `${Math.round(b.x1 - b.x0)} × ${Math.round(b.y1 - b.y0)}`;
       const [x, y] = H.s.screen;
-      ctx.font = '10.5px Inter, system-ui, sans-serif';
+      ctx.font = '10.5px "IBM Plex Sans", system-ui, sans-serif';
       const w = ctx.measureText(t).width + 8;
       ctx.fillStyle = ACCENT;
       ctx.fillRect(x - w / 2, y + 10, w, 16);
@@ -407,7 +407,7 @@ export class Viewport {
     if (n.geom.kind !== 'path') {
       const b = this.app.nodeBounds(n.id);
       const [x, y] = this.app.docToScreen(b.x0, b.y1);
-      ctx.font = '11px Inter, system-ui, sans-serif';
+      ctx.font = '11px "IBM Plex Sans", system-ui, sans-serif';
       ctx.fillStyle = '#8b8f98';
       ctx.fillText(`${PRIMS[n.geom.kind].label}: dragging a point turns it into a free path`, x, y + 18);
     }

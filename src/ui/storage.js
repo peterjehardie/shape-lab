@@ -45,6 +45,11 @@ export const libPut = (asset) => tx('swatches', 'readwrite', (s) => s.put(asset)
 export const libDelete = (id) => tx('swatches', 'readwrite', (s) => s.delete(id));
 
 export function download(name, blobOrText, type = 'application/json') {
+  if (globalThis.SHAPELAB_HOSTED) {
+    // the hosted page's frame blocks downloads; say so instead of failing silently
+    import('./widgets.js').then((w) => w.toast('Downloads are blocked in the hosted page. Run Shape Lab locally to save files; your work autosaves in this browser.', 5000));
+    return;
+  }
   const blob = blobOrText instanceof Blob ? blobOrText : new Blob([blobOrText], { type });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);

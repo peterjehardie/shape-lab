@@ -16,8 +16,8 @@
   --ok: #4fd1a5;
   --r: 5px;
   --dock-h: 300px;
-  --font: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
-  --mono: 'JetBrains Mono', ui-monospace, monospace;
+  --font: 'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --mono: 'IBM Plex Mono', ui-monospace, monospace;
   color-scheme: dark;
 }
 * { box-sizing: border-box; }
@@ -39,7 +39,7 @@ button { font: inherit; color: inherit; }
 .mono { font-family: var(--mono); font-size: 11px; }
 
 #app {
-  height: 100vh;
+  height: 100%;
   display: grid;
   grid-template-columns: 44px 244px minmax(0, 1fr) 304px;
   grid-template-rows: 40px minmax(0, 1fr) 24px;
@@ -400,3 +400,5 @@ button { font: inherit; color: inherit; }
   .panel.right { border-left: 0; border-top: 1px solid var(--line); }
   .topbar .btn.accent span, .topbar .zoom-label { display: none; }
 }
+
+.confirm { width: 300px; display: flex; flex-direction: column; gap: 10px; padding: 4px; }

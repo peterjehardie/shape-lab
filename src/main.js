@@ -132,8 +132,16 @@ const cmd = (id, label, key, run, extra = {}) => app.command(id, { label, key, r
 const hasSel = () => app.sel.size > 0;
 
 cmd('new', 'New document', `${MOD}Alt+N`, () => {
-  if (!confirm('Start a new, empty document? (The current one stays in the browser only until replaced.)')) return;
-  app.loadDoc(newDoc());
+  // confirm inside the page (browser dialogs are not available everywhere)
+  const anchor = h('div', { style: { position: 'fixed', left: innerWidth / 2 - 150 + 'px', top: '70px', width: '1px', height: '1px' } });
+  document.body.append(anchor);
+  popover(anchor, h('div', { class: 'confirm' },
+    h('div', { class: 'pop-title' }, 'Start a new document?'),
+    h('div', { class: 'muted' }, 'The current document is replaced. Save it as a file first if you want to keep it.'),
+    h('div', { class: 'btn-row end' },
+      h('button', { class: 'btn small', onclick: () => closePopover() }, 'Keep working'),
+      h('button', { class: 'btn small primary', onclick: () => { closePopover(); app.loadDoc(newDoc()); } }, 'Start new'))));
+  anchor.remove();
 });
 cmd('open', 'Open…', `${MOD}O`, async () => {
   const f = await pickFile('.json,application/json');

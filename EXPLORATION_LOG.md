@@ -53,3 +53,23 @@ Non-binding exploration log: a record of what was tried and why it was dropped. 
 - **Open question, not settled:** whether scene work moves to 2.5D/3D (flat layers placed in 3D space) and whether
   it becomes a separate "Scene Lab" beside a "Shape Lab", or two views on one document. Gen2 steps back to Shape Lab
   only.
+
+## 2026-09-29 · gen2 first build (abstract shape tool)
+
+- **Empty-state card over the artboard catching clicks.** Drawing a rectangle under it hit the card's
+  buttons instead. The card now lets clicks through except on its buttons and hides once a drawing
+  tool is picked.
+- **Graph node positions stored as ordinary edits.** Moving a node made every shape in the generator
+  recompute. Position changes are now undoable "layout" operations that leave the render caches alone.
+- **Rebuilding graph nodes whenever the selected graph node changed.** The rebuild replaced a button
+  between press and release, so its click never arrived. Selection now only toggles classes, and the
+  small header buttons act on press.
+- **Framing the whole graph at any zoom.** Large graphs shrank until unreadable; framing now stops at a
+  readable zoom and the view scrolls instead.
+- **Drawing the document root as a plain container.** Whole-picture pixel effects (grain) were silently
+  skipped; the root now renders background and content into one bitmap when it has pixel effects.
+- **Heavy noise wash starter (ridged noise, high opacity).** Buried everything under it; now softer
+  cloudy noise at lower opacity.
+- **Browser confirm() for "New document".** Not available in the hosted frame; replaced with an
+  in-page confirmation.
+- **Inter as the interface face.** Swapped for IBM Plex Sans / Plex Mono.

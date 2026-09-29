@@ -257,7 +257,7 @@ export class App {
     if (!ids.length) return;
     this.clipboard = ids.map((id) => ({ rootId: id, nodes: subtreeNodes(this.doc, id) }));
     try {
-      navigator.clipboard?.writeText(JSON.stringify({ format: 'shapelab.clip', items: this.clipboard }));
+      navigator.clipboard?.writeText(JSON.stringify({ format: 'shapelab.clip', items: this.clipboard }))?.catch(() => {});
     } catch {}
     toast(`Copied ${ids.length} item${ids.length > 1 ? 's' : ''}`);
   }

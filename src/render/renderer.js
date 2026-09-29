@@ -65,8 +65,36 @@ export class Renderer {
     ctx.save();
     ctx.clip();
     const root = doc.nodes[doc.root];
-    if (ab.bg) this.drawLeafLike(ctx, { id: '__bg', rev: JSON.stringify(ab), sig: '', polys: abPolys, fill: ab.bg, stroke: null, effects: [], opacity: 1, blend: 'normal' }, V, clip, opts);
-    this.drawContainer(ctx, root, V, [], clip, opts);
+    const bg = ab.bg ? { id: '__bg', rev: JSON.stringify(ab), sig: '', polys: abPolys, fill: ab.bg, stroke: null, effects: [], opacity: 1, blend: 'normal' } : null;
+    const rootDefs = (M) => (hasStage(root.effects, 'geom') ? [{ node: root, M, sig: 'root:' + this.store.revOf(root.id) }] : []);
+    if (!hasStage(root.effects, 'raster') || opts.outline) {
+      if (bg) this.drawLeafLike(ctx, bg, V, clip, opts);
+      this.drawContainer(ctx, root, V, rootDefs(V), clip, opts);
+    } else {
+      // whole-picture pixel effects: render background + everything into one bitmap, then process it
+      const R = this.region(transformBounds(V, { x0: 0, y0: 0, x1: ab.w, y1: ab.h }), 0, clip, opts.draft ? 0.5 : 1, V);
+      if (R) {
+        const key = ['root', this.store.docRev, JSON.stringify(ab), this.linKey(V), R.rx, R.ry, R.w, R.h, R.scale].join('|');
+        let bm = this.bitmaps.get('__root');
+        if (!bm || bm.key !== key) {
+          const c = makeCanvas(R.w, R.h);
+          const g = c.getContext('2d');
+          const Mb = mul([R.scale, 0, 0, R.scale, -R.x * R.scale, -R.y * R.scale], V);
+          const localClip = { x0: 0, y0: 0, x1: R.w, y1: R.h };
+          if (bg) this.drawLeafLike(g, { ...bg, id: '__bg_root' }, Mb, localClip, opts);
+          this.drawContainer(g, root, Mb, rootDefs(Mb), localClip, opts);
+          g.setTransform(1, 0, 0, 1, 0, 0);
+          this.applyRaster(g, root.effects, Mb, R, abPolys, null, opts);
+          bm = { key, canvas: c, rx: R.rx, ry: R.ry, dw: R.dw, dh: R.dh };
+          this.bitmaps.set('__root', bm);
+          this.stats.bitmaps++;
+        }
+        ctx.save();
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.drawImage(bm.canvas, Math.floor(V[4]) + bm.rx, Math.floor(V[5]) + bm.ry, bm.dw, bm.dh);
+        ctx.restore();
+      }
+    }
     ctx.restore();
     this.stats.ms = performance.now() - t0;
   }
@@ -128,9 +156,9 @@ export class Renderer {
     const b = this.groupDeviceBounds(node, M);
     if (!boundsValid(b)) return;
     const pad = effectPad(node.effects) * meanScale(M);
-    const R = this.region(b, pad, clip, 1, M);
+    const R = this.region(b, pad, clip, opts.draft && (b.x1 - b.x0) * (b.y1 - b.y0) > 250000 ? 0.5 : 1, M);
     if (!R) return;
-    const key = ['g', this.store.revOf(node.id), this.defSig(defs, M), this.linKey(M), R.rx, R.ry, R.w, R.h, opts.draft ? 1 : 0, this.doc.assetsRev || 0].join('|');
+    const key = ['g', R.scale, this.store.revOf(node.id), this.defSig(defs, M), this.linKey(M), R.rx, R.ry, R.w, R.h, opts.draft ? 1 : 0, this.doc.assetsRev || 0].join('|');
     let bm = this.bitmaps.get(node.id);
     if (!bm || bm.key !== key) {
       const c = makeCanvas(R.w, R.h);
