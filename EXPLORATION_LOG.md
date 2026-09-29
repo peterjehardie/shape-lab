@@ -41,3 +41,15 @@ Non-binding exploration log: a record of what was tried and why it was dropped. 
   panel that they suit big shapes.
 - **Land layers spanning only 3% past the frame.** Camera parallax exposed their ends; they now run 30% past each side.
 - **Keeping the paused motion frame on screen.** Hid later edits; any edit now returns to the live scene.
+
+## 2026-09-29 · gen1 parked as a dead end
+
+- **Gen1 as a whole: a structured landscape scene builder.** Parked in `explorations/gen1-scene-builder/` (git tag
+  `gen1-scene-builder`). It opened on a finished, pre-built scene and grew toward the program assembling pictures
+  (depth bands, structures, presets) rather than a person shaping things by hand. It proved many parts, but as a
+  whole it does not come together as a tool for working abstractly with shapes. Parts worth carrying as knowledge:
+  the palette roles and ramps from Chroma Mat, torn edges, noise masks, grain, the warp nodes, per-object random
+  streams, the node editor interaction, and the library index (moved to `library/`).
+- **Open question, not settled:** whether scene work moves to 2.5D/3D (flat layers placed in 3D space) and whether
+  it becomes a separate "Scene Lab" beside a "Shape Lab", or two views on one document. Gen2 steps back to Shape Lab
+  only.
